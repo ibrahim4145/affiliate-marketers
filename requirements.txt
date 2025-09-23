@@ -1,0 +1,8 @@
+fastapi
+uvicorn[standard]
+motor              # async MongoDB driver
+apscheduler
+pydantic
+pydantic[email]
+python-dotenv      # manage env vars
+requests           # HTTP client for testing

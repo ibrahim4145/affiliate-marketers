@@ -1,0 +1,332 @@
+from fastapi import APIRouter, HTTPException, Depends
+from motor.motor_asyncio import AsyncIOMotorClient
+from pydantic import BaseModel
+from typing import Optional
+from bson import ObjectId
+import os
+from datetime import datetime
+
+router = APIRouter()
+
+# MongoDB connection
+async def get_database():
+    mongodb_url = os.getenv("MONGO_URI")
+    database_name = os.getenv("MONGO_DB")
+    client = AsyncIOMotorClient(mongodb_url)
+    return client[database_name]
+
+# Pydantic models
+class ScraperRunResponse(BaseModel):
+    industry_name: str
+    query: str
+    start_param: int
+    progress_id: str
+
+class UpdateProgressRequest(BaseModel):
+    done: bool
+    start_param: int
+    se_id: Optional[str] = None
+
+class UpdateProgressResponse(BaseModel):
+    id: str
+    i_id: str
+    q_id: str
+    done: bool
+    start_param: int
+    se_id: Optional[str] = None
+    updated_at: datetime
+
+@router.post("/scraper/run", response_model=ScraperRunResponse)
+async def run_scraper(db=Depends(get_database)):
+    """
+    Assigns the next scraping task based on progress tracking.
+    """
+    try:
+        # Get collections
+        industries_collection = db.industries
+        queries_collection = db.queries
+        progress_collection = db.scraped_progress
+        
+        # Debug: List all collections in the database
+        collections = await db.list_collection_names()
+        print(f"Available collections: {collections}")
+        
+        # Check if industries and queries exist
+        industries_count = await industries_collection.count_documents({})
+        queries_count = await queries_collection.count_documents({})
+        
+        print(f"Industries count: {industries_count}")
+        print(f"Queries count: {queries_count}")
+        
+        # Debug: Try to find any documents in industries
+        sample_industries = await industries_collection.find({}).limit(5).to_list(length=5)
+        print(f"Sample industries: {sample_industries}")
+        
+        if industries_count == 0:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"No industries found. Available collections: {collections}. Please add industries first."
+            )
+        
+        if queries_count == 0:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"No queries found. Available collections: {collections}. Please add queries first."
+            )
+        
+        # Get all industries and queries for processing
+        industries = await industries_collection.find({}).sort("_id", 1).to_list(length=None)
+        queries = await queries_collection.find({}).sort("_id", 1).to_list(length=None)
+        
+        # Check if scraped_progress is empty
+        progress_count = await progress_collection.count_documents({})
+        
+        if progress_count == 0:
+            # First run - pick first industry and first query
+            industry = industries[0]
+            query = queries[0]
+            start_param = 1
+            
+            # Insert new progress record
+            progress_doc = {
+                "i_id": str(industry["_id"]),
+                "q_id": str(query["_id"]),
+                "done": False,
+                "start_param": start_param,
+                "se_id": None,
+                "created_at": datetime.utcnow()
+            }
+            result = await progress_collection.insert_one(progress_doc)
+            
+            return ScraperRunResponse(
+                industry_name=industry["industry_name"],
+                query=query["query"],
+                start_param=start_param,
+                progress_id=str(result.inserted_id)
+            )
+        
+        # Get the last progress record
+        last_progress = await progress_collection.find({}).sort("_id", -1).limit(1).to_list(length=1)
+        
+        if not last_progress:
+            raise HTTPException(status_code=500, detail="Failed to retrieve progress data")
+        
+        last_record = last_progress[0]
+        
+        # If last record is not done, return the same task
+        if not last_record.get("done", False):
+            # Get the industry and query for the last record
+            industry = await industries_collection.find_one({"_id": ObjectId(last_record["i_id"])})
+            query = await queries_collection.find_one({"_id": ObjectId(last_record["q_id"])})
+            
+            if not industry or not query:
+                raise HTTPException(status_code=500, detail="Referenced industry or query not found")
+            
+            return ScraperRunResponse(
+                industry_name=industry["industry_name"],
+                query=query["query"],
+                start_param=last_record["start_param"],
+                progress_id=str(last_record["_id"])
+            )
+        
+        # Last record is done - determine next task
+        current_i_id = last_record["i_id"]
+        current_q_id = last_record["q_id"]
+        
+        # Find current industry and query indices
+        current_industry_index = next(
+            (i for i, ind in enumerate(industries) if str(ind["_id"]) == current_i_id), 
+            -1
+        )
+        current_query_index = next(
+            (i for i, q in enumerate(queries) if str(q["_id"]) == current_q_id), 
+            -1
+        )
+        
+        if current_industry_index == -1 or current_query_index == -1:
+            raise HTTPException(status_code=500, detail="Current progress references invalid data")
+        
+        # Determine next task
+        next_industry = None
+        next_query = None
+        start_param = 1
+        
+        # Check if we can move to next industry for same query
+        if current_industry_index < len(industries) - 1:
+            # Move to next industry for same query
+            next_industry = industries[current_industry_index + 1]
+            next_query = queries[current_query_index]
+        else:
+            # Current query has been run for all industries
+            if current_query_index < len(queries) - 1:
+                # Move to next query, first industry
+                next_query = queries[current_query_index + 1]
+                next_industry = industries[0]
+            else:
+                # All queries have been run for all industries
+                # Start over from the beginning
+                next_industry = industries[0]
+                next_query = queries[0]
+        
+        # Insert new progress record
+        progress_doc = {
+            "i_id": str(next_industry["_id"]),
+            "q_id": str(next_query["_id"]),
+            "done": False,
+            "start_param": start_param,
+            "se_id": None,
+            "created_at": datetime.utcnow()
+        }
+        result = await progress_collection.insert_one(progress_doc)
+        
+        return ScraperRunResponse(
+            industry_name=next_industry["industry_name"],
+            query=next_query["query"],
+            start_param=start_param,
+            progress_id=str(result.inserted_id)
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+@router.patch("/scraper/update-progress/{progress_id}", response_model=UpdateProgressResponse)
+async def update_progress(
+    progress_id: str,
+    request: UpdateProgressRequest,
+    db=Depends(get_database)
+):
+    """
+    Updates an existing scraped_progress record.
+    """
+    try:
+        progress_collection = db.scraped_progress
+        
+        # Validate ObjectId format
+        try:
+            object_id = ObjectId(progress_id)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid progress ID format")
+        
+        # Check if record exists
+        existing_record = await progress_collection.find_one({"_id": object_id})
+        if not existing_record:
+            raise HTTPException(status_code=404, detail="Progress record not found")
+        
+        # Prepare update data
+        update_data = {
+            "done": request.done,
+            "start_param": request.start_param,
+            "updated_at": datetime.utcnow()
+        }
+        
+        if request.se_id is not None:
+            update_data["se_id"] = request.se_id
+        
+        # Update the record
+        await progress_collection.update_one(
+            {"_id": object_id},
+            {"$set": update_data}
+        )
+        
+        # Get the updated record
+        updated_record = await progress_collection.find_one({"_id": object_id})
+        
+        return UpdateProgressResponse(
+            id=str(updated_record["_id"]),
+            i_id=updated_record["i_id"],
+            q_id=updated_record["q_id"],
+            done=updated_record["done"],
+            start_param=updated_record["start_param"],
+            se_id=updated_record.get("se_id"),
+            updated_at=updated_record["updated_at"]
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+@router.get("/scraper/debug")
+async def debug_database(db=Depends(get_database)):
+    """
+    Debug endpoint to check database contents.
+    """
+    try:
+        # List all collections
+        collections = await db.list_collection_names()
+        
+        # Check each collection
+        result = {
+            "collections": collections,
+            "database_name": db.name
+        }
+        
+        # Check industries
+        try:
+            industries_count = await db.industries.count_documents({})
+            industries_sample = await db.industries.find({}).limit(3).to_list(length=3)
+            result["industries"] = {
+                "count": industries_count,
+                "sample": industries_sample
+            }
+        except Exception as e:
+            result["industries"] = {"error": str(e)}
+        
+        # Check queries
+        try:
+            queries_count = await db.queries.count_documents({})
+            queries_sample = await db.queries.find({}).limit(3).to_list(length=3)
+            result["queries"] = {
+                "count": queries_count,
+                "sample": queries_sample
+            }
+        except Exception as e:
+            result["queries"] = {"error": str(e)}
+        
+        # Check progress
+        try:
+            progress_count = await db.scraped_progress.count_documents({})
+            progress_sample = await db.scraped_progress.find({}).limit(3).to_list(length=3)
+            result["progress"] = {
+                "count": progress_count,
+                "sample": progress_sample
+            }
+        except Exception as e:
+            result["progress"] = {"error": str(e)}
+        
+        return result
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Debug error: {str(e)}")
+
+@router.get("/scraper/status")
+async def get_scraper_status(db=Depends(get_database)):
+    """
+    Get current scraper status and statistics.
+    """
+    try:
+        industries_collection = db.industries
+        queries_collection = db.queries
+        progress_collection = db.scraped_progress
+        
+        # Get counts
+        industries_count = await industries_collection.count_documents({})
+        queries_count = await queries_collection.count_documents({})
+        total_progress = await progress_collection.count_documents({})
+        completed_progress = await progress_collection.count_documents({"done": True})
+        
+        # Get last progress record
+        last_progress = await progress_collection.find({}).sort("_id", -1).limit(1).to_list(length=1)
+        
+        return {
+            "industries_count": industries_count,
+            "queries_count": queries_count,
+            "total_progress": total_progress,
+            "completed_progress": completed_progress,
+            "last_progress": last_progress[0] if last_progress else None
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")

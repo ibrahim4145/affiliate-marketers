@@ -36,7 +36,7 @@ class UpdateProgressResponse(BaseModel):
     se_id: Optional[str] = None
     updated_at: datetime
 
-@router.post("/scraper/run", response_model=ScraperRunResponse)
+@router.get("/scraper/run", response_model=ScraperRunResponse)
 async def run_scraper(db=Depends(get_database)):
     """
     Assigns the next scraping task based on progress tracking.
@@ -165,8 +165,13 @@ async def run_scraper(db=Depends(get_database)):
             else:
                 # All queries have been run for all industries
                 # Start over from the beginning
-                next_industry = industries[0]
-                next_query = queries[0]
+                # next_industry = industries[0]
+                # next_query = queries[0]
+
+                raise HTTPException(
+                    status_code=200,
+                    detail="All industries and queries have been processed."
+                )
         
         # Insert new progress record
         progress_doc = {

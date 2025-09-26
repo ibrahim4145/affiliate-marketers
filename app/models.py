@@ -35,7 +35,24 @@ class IndustryOut(IndustryBase):
     id: str
     created_at: datetime
     updated_at: datetime
-    
+
+# Query Models
+class QueryBase(BaseModel):
+    query: str
+    description: Optional[str] = None
+
+class QueryCreate(QueryBase):
+    pass
+
+class QueryUpdate(BaseModel):
+    query: Optional[str] = None
+    description: Optional[str] = None
+
+class QueryOut(QueryBase):
+    id: str
+    created_at: datetime
+    updated_at: datetime
+
 # Auth Models
 class Token(BaseModel):
     access_token: str

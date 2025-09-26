@@ -19,6 +19,23 @@ class UserOut(UserBase):
     created_at: datetime
     updated_at: datetime
 
+# Industry Models
+class IndustryBase(BaseModel):
+    industry_name: str
+    description: Optional[str] = None
+
+class IndustryCreate(IndustryBase):
+    pass
+
+class IndustryUpdate(BaseModel):
+    industry_name: Optional[str] = None
+    description: Optional[str] = None
+
+class IndustryOut(IndustryBase):
+    id: str
+    created_at: datetime
+    updated_at: datetime
+    
 # Auth Models
 class Token(BaseModel):
     access_token: str

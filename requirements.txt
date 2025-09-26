@@ -6,3 +6,6 @@ pydantic
 pydantic[email]
 python-dotenv      # manage env vars
 requests           # HTTP client for testing
+python-jose[cryptography]  # JWT tokens
+passlib[bcrypt]    # password hashing
+python-multipart   # form data support

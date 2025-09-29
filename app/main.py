@@ -9,18 +9,36 @@ import os
 
 app = FastAPI(title="Affiliate Scraper API")
 
-allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,https://affiliate-marketers.vercel.app").split(",")
+# CORS configuration
+allowed_origins = [
+    "http://localhost:3000",
+    "https://affiliate-marketers.vercel.app",
+    "https://affiliate-marketers.vercel.app/",
+    "https://*.vercel.app"
+]
+
+# Add environment variable origins if they exist
+env_origins = os.getenv("ALLOWED_ORIGINS", "").split(",")
+if env_origins and env_origins[0]:
+    allowed_origins.extend(env_origins)
+
+print(f"CORS allowed origins: {allowed_origins}")
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 
 @app.get("/")
 def root():
     return {"message": "Affiliate Scraper API running......"}
+
+@app.get("/cors-test")
+def cors_test():
+    return {"message": "CORS test endpoint", "allowed_origins": allowed_origins}
 
 # Include all routers
 app.include_router(users.router, prefix="/api")

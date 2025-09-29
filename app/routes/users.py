@@ -22,24 +22,34 @@ def user_helper(user) -> dict:
 @router.post("/register", response_model=UserOut)
 async def register_user(user: UserCreate):
     """Register a new user."""
-    # Check if user exists
-    existing = await db["users"].find_one({"email": user.email})
-    if existing:
-        raise HTTPException(status_code=400, detail="Email already registered")
-    
-    # Hash password and create user
-    hashed_password = get_password_hash(user.password)
-    user_data = {
-        "name": user.name,
-        "email": user.email,
-        "password": hashed_password,
-        "created_at": datetime.utcnow(),
-        "updated_at": datetime.utcnow()
-    }
-    
-    result = await db["users"].insert_one(user_data)
-    created_user = await db["users"].find_one({"_id": result.inserted_id})
-    return user_helper(created_user)
+    try:
+        # Check if user exists
+        existing = await db["users"].find_one({"email": user.email})
+        if existing:
+            raise HTTPException(status_code=400, detail="Email already registered")
+        
+        # Validate password
+        if not user.password or len(user.password) < 6:
+            raise HTTPException(status_code=400, detail="Password must be at least 6 characters long")
+        
+        # Hash password and create user
+        hashed_password = get_password_hash(user.password)
+        user_data = {
+            "name": user.name,
+            "email": user.email,
+            "password": hashed_password,
+            "created_at": datetime.utcnow(),
+            "updated_at": datetime.utcnow()
+        }
+        
+        result = await db["users"].insert_one(user_data)
+        created_user = await db["users"].find_one({"_id": result.inserted_id})
+        return user_helper(created_user)
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Registration error: {e}")
+        raise HTTPException(status_code=500, detail=f"Registration failed: {str(e)}")
 
 @router.post("/login", response_model=Token)
 async def login_user(user_credentials: UserLogin):

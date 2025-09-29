@@ -24,7 +24,7 @@ def root():
 
 @app.get("/cors-test")
 def cors_test():
-    return {"message": "CORS test endpoint", "allowed_origins": allowed_origins}
+    return {"message": "CORS test endpoint", "allowed_origins": ["*"]}
 
 # Include all routers
 app.include_router(users.router, prefix="/api")

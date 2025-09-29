@@ -10,9 +10,9 @@ from bson import ObjectId
 import os
 
 # Configuration
-SECRET_KEY = os.getenv("SECRET_KEY")  
-ALGORITHM = os.getenv("ALGORITHM")
-ACCESS_TOKEN_EXPIRE_MINUTES = os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES")
+SECRET_KEY = os.getenv("SECRET_KEY", "your-super-secret-jwt-key-here-change-in-production")
+ALGORITHM = os.getenv("ALGORITHM", "HS256")
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
 
 # Password hashing
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")

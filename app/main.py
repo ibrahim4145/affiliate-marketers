@@ -9,25 +9,11 @@ import os
 
 app = FastAPI(title="Affiliate Scraper API")
 
-# CORS configuration
-allowed_origins = [
-    "http://localhost:3000",
-    "https://affiliate-marketers.vercel.app",
-    "https://affiliate-marketers.vercel.app/",
-    "https://*.vercel.app"
-]
-
-# Add environment variable origins if they exist
-env_origins = os.getenv("ALLOWED_ORIGINS", "").split(",")
-if env_origins and env_origins[0]:
-    allowed_origins.extend(env_origins)
-
-print(f"CORS allowed origins: {allowed_origins}")
-
+# CORS configuration - Allow all origins for now to fix the issue
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=allowed_origins,
-    allow_credentials=True,
+    allow_origins=["*"],  # Allow all origins temporarily
+    allow_credentials=False,  # Must be False when allow_origins=["*"]
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )

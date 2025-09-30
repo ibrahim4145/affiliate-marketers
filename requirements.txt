@@ -1,11 +1,37 @@
-fastapi
-uvicorn[standard]
-motor              # async MongoDB driver
-apscheduler
-pydantic
-pydantic[email]
-python-dotenv      # manage env vars
-requests           # HTTP client for testing
-python-jose[cryptography]  # JWT tokens
-passlib[bcrypt]    # password hashing
-python-multipart   # form data support
+# FastAPI and ASGI server
+fastapi==0.117.1
+uvicorn[standard]==0.36.0
+
+# Database drivers
+motor==3.7.1              # async MongoDB driver
+pymongo==4.15.1           # MongoDB driver (for scripts)
+
+# Authentication and security
+python-jose[cryptography]==3.5.0  # JWT tokens
+passlib[bcrypt]==1.7.4    # password hashing
+bcrypt==3.2.2             # password hashing backend
+
+# Data validation and serialization
+pydantic==2.11.9
+pydantic[email]==2.11.9
+
+# Environment and configuration
+python-dotenv==1.1.1      # manage env vars
+
+# HTTP and networking
+requests==2.32.5          # HTTP client
+httpx==0.28.1             # async HTTP client
+python-multipart==0.0.20  # form data support
+
+# Task scheduling
+apscheduler==3.11.0       # background tasks
+
+# Development and testing (optional but recommended)
+pytest==8.3.4             # testing framework
+pytest-asyncio==0.24.0    # async testing support
+black==24.10.0            # code formatting
+isort==5.13.2             # import sorting
+flake8==7.1.1             # linting
+
+# Production dependencies
+gunicorn==23.0.0          # production WSGI server

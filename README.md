@@ -33,7 +33,7 @@ FastAPI backend for the Affiliate Scraper application with MongoDB Atlas integra
    ACCESS_TOKEN_EXPIRE_MINUTES=1440
 
    # CORS Configuration
-   ALLOWED_ORIGINS=http://localhost:3000,https://your-frontend-domain.com
+   ALLOWED_ORIGINS=http://localhost:8000,https://your-frontend-domain.com
    ```
 
 4. **Run with Docker Compose**
@@ -48,10 +48,10 @@ FastAPI backend for the Affiliate Scraper application with MongoDB Atlas integra
 
 ## 📋 API Endpoints
 
-- **API Base**: `http://localhost:3000`
-- **Documentation**: `http://localhost:3000/docs`
-- **Registration**: `http://localhost:3000/api/auth/register`
-- **Login**: `http://localhost:3000/api/auth/login`
+- **API Base**: `http://localhost:8000`
+- **Documentation**: `http://localhost:8000/docs`
+- **Registration**: `http://localhost:8000/api/auth/register`
+- **Login**: `http://localhost:8000/api/auth/login`
 
 ## 🛑 Stop the Application
 
@@ -68,7 +68,7 @@ docker-compose down
 | `SECRET_KEY` | JWT secret key | Required |
 | `ALGORITHM` | JWT algorithm | `HS256` |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | Token expiration time | `1440` |
-| `ALLOWED_ORIGINS` | CORS allowed origins | `http://localhost:3000` |
+| `ALLOWED_ORIGINS` | CORS allowed origins | `http://localhost:8000` |
 
 ## 🚀 Production Deployment
 

@@ -18,10 +18,10 @@ echo "⏳ Waiting for services to start..."
 sleep 10
 
 echo "🧪 Testing API..."
-curl -f http://localhost:3000 > /dev/null 2>&1
+curl -f http://localhost:8000 > /dev/null 2>&1
 if [ $? -eq 0 ]; then
-    echo "✅ API is running at http://localhost:3000"
-    echo "📚 API Documentation: http://localhost:3000/docs"
+    echo "✅ API is running at http://localhost:8000"
+    echo "📚 API Documentation: http://localhost:8000/docs"
 else
     echo "❌ API is not responding. Check the logs with: docker-compose logs"
 fi

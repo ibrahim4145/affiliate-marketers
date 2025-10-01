@@ -57,26 +57,55 @@ async def create_leads(
     db=Depends(get_database)
 ):
     """
-    Create multiple leads in bulk.
+    Create multiple leads in bulk. Duplicates are automatically filtered out.
     """
     try:
         leads_collection = db.leads
         
         # Prepare leads data with timestamps
         leads_to_insert = []
+        duplicate_domains = []
+        existing_domains = set()
+        
         for lead in bulk_data.leads:
+            # Check if domain already exists in current batch
+            if lead.domain in existing_domains:
+                duplicate_domains.append(lead.domain)
+                continue
+            
+            # Check if domain already exists in database
+            existing_lead = await leads_collection.find_one({"domain": lead.domain})
+            if existing_lead:
+                duplicate_domains.append(lead.domain)
+                continue
+            
+            # Add to batch and mark as processed
             lead_doc = lead.dict()
             lead_doc["created_at"] = datetime.utcnow()
             lead_doc["updated_at"] = datetime.utcnow()
             leads_to_insert.append(lead_doc)
+            existing_domains.add(lead.domain)
         
-        # Insert all leads
-        result = await leads_collection.insert_many(leads_to_insert)
+        # Insert only unique leads
+        created_count = 0
+        created_ids = []
+        
+        if leads_to_insert:
+            result = await leads_collection.insert_many(leads_to_insert)
+            created_count = len(result.inserted_ids)
+            created_ids = [str(id) for id in result.inserted_ids]
+        
+        # Prepare response message
+        message = f"Successfully created {created_count} leads"
+        if duplicate_domains:
+            message += f". Skipped {len(duplicate_domains)} duplicates: {', '.join(duplicate_domains[:5])}"
+            if len(duplicate_domains) > 5:
+                message += f" and {len(duplicate_domains) - 5} more"
         
         return BulkLeadResponse(
-            created_count=len(result.inserted_ids),
-            created_ids=[str(id) for id in result.inserted_ids],
-            message=f"Successfully created {len(result.inserted_ids)} leads"
+            created_count=created_count,
+            created_ids=created_ids,
+            message=message
         )
         
     except Exception as e:
@@ -264,3 +293,58 @@ async def get_leads_stats(db=Depends(get_database)):
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get leads statistics: {str(e)}")
+
+@router.post("/leads/check-duplicates")
+async def check_duplicates(
+    domains: List[str],
+    db=Depends(get_database)
+):
+    """
+    Check which domains already exist in the database.
+    """
+    try:
+        leads_collection = db.leads
+        
+        # Find existing domains
+        existing_leads = await leads_collection.find(
+            {"domain": {"$in": domains}},
+            {"domain": 1, "_id": 0}
+        ).to_list(length=None)
+        
+        existing_domains = [lead["domain"] for lead in existing_leads]
+        new_domains = [domain for domain in domains if domain not in existing_domains]
+        
+        return {
+            "total_checked": len(domains),
+            "existing_domains": existing_domains,
+            "new_domains": new_domains,
+            "existing_count": len(existing_domains),
+            "new_count": len(new_domains)
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to check duplicates: {str(e)}")
+
+@router.post("/leads/ensure-unique-index")
+async def ensure_unique_index(db=Depends(get_database)):
+    """
+    Create a unique index on the domain field to prevent duplicates at database level.
+    """
+    try:
+        leads_collection = db.leads
+        
+        # Create unique index on domain field
+        await leads_collection.create_index("domain", unique=True)
+        
+        return {
+            "message": "Unique index created successfully on domain field",
+            "index_name": "domain_1"
+        }
+        
+    except Exception as e:
+        if "duplicate key" in str(e).lower() or "already exists" in str(e).lower():
+            return {
+                "message": "Unique index already exists on domain field",
+                "index_name": "domain_1"
+            }
+        raise HTTPException(status_code=500, detail=f"Failed to create unique index: {str(e)}")

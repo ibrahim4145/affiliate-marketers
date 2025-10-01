@@ -86,14 +86,33 @@ async def create_leads(
             leads_to_insert.append(lead_doc)
             existing_domains.add(lead.domain)
         
-        # Insert only unique leads
+        # Insert only unique leads with error handling
         created_count = 0
         created_ids = []
         
         if leads_to_insert:
-            result = await leads_collection.insert_many(leads_to_insert)
-            created_count = len(result.inserted_ids)
-            created_ids = [str(id) for id in result.inserted_ids]
+            try:
+                result = await leads_collection.insert_many(leads_to_insert)
+                created_count = len(result.inserted_ids)
+                created_ids = [str(id) for id in result.inserted_ids]
+            except Exception as insert_error:
+                # Handle batch insert errors gracefully
+                if "duplicate key error" in str(insert_error).lower():
+                    # Try inserting one by one to identify which ones are duplicates
+                    for lead_doc in leads_to_insert:
+                        try:
+                            result = await leads_collection.insert_one(lead_doc)
+                            created_count += 1
+                            created_ids.append(str(result.inserted_id))
+                        except Exception as single_error:
+                            if "duplicate key error" in str(single_error).lower():
+                                duplicate_domains.append(lead_doc["domain"])
+                            else:
+                                # Log other errors but don't break the process
+                                print(f"Error inserting lead {lead_doc.get('domain', 'unknown')}: {str(single_error)}")
+                else:
+                    # Re-raise non-duplicate errors
+                    raise insert_error
         
         # Prepare response message
         message = f"Successfully created {created_count} leads"
@@ -108,8 +127,17 @@ async def create_leads(
             message=message
         )
         
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to create leads: {str(e)}")
+        # Log the error but don't break the scraper
+        print(f"Unexpected error in create_leads: {str(e)}")
+        # Return a successful response with 0 created to keep scraper running
+        return BulkLeadResponse(
+            created_count=0,
+            created_ids=[],
+            message=f"Error occurred but scraper continues: {str(e)[:100]}..."
+        )
 
 @router.get("/leads", response_model=List[LeadResponse])
 async def get_leads(

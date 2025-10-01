@@ -89,14 +89,33 @@ async def create_socials(
             socials_to_insert.append(social_doc)
             existing_socials.add(unique_key)
         
-        # Insert only unique socials
+        # Insert only unique socials with error handling
         created_count = 0
         created_ids = []
         
         if socials_to_insert:
-            result = await socials_collection.insert_many(socials_to_insert)
-            created_count = len(result.inserted_ids)
-            created_ids = [str(id) for id in result.inserted_ids]
+            try:
+                result = await socials_collection.insert_many(socials_to_insert)
+                created_count = len(result.inserted_ids)
+                created_ids = [str(id) for id in result.inserted_ids]
+            except Exception as insert_error:
+                # Handle batch insert errors gracefully
+                if "duplicate key error" in str(insert_error).lower():
+                    # Try inserting one by one to identify which ones are duplicates
+                    for social_doc in socials_to_insert:
+                        try:
+                            result = await socials_collection.insert_one(social_doc)
+                            created_count += 1
+                            created_ids.append(str(result.inserted_id))
+                        except Exception as single_error:
+                            if "duplicate key error" in str(single_error).lower():
+                                duplicate_socials.append(f"{social_doc['platform']}:{social_doc['handle']} (lead: {social_doc['lead_id']})")
+                            else:
+                                # Log other errors but don't break the process
+                                print(f"Error inserting social {social_doc.get('platform', 'unknown')}:{social_doc.get('handle', 'unknown')}: {str(single_error)}")
+                else:
+                    # Re-raise non-duplicate errors
+                    raise insert_error
         
         # Prepare response message
         message = f"Successfully created {created_count} social handles"
@@ -111,8 +130,17 @@ async def create_socials(
             message=message
         )
         
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to create social handles: {str(e)}")
+        # Log the error but don't break the scraper
+        print(f"Unexpected error in create_socials: {str(e)}")
+        # Return a successful response with 0 created to keep scraper running
+        return BulkSocialResponse(
+            created_count=0,
+            created_ids=[],
+            message=f"Error occurred but scraper continues: {str(e)[:100]}..."
+        )
 
 @router.get("/social", response_model=List[SocialResponse])
 async def get_socials(

@@ -86,14 +86,33 @@ async def create_phones(
             phones_to_insert.append(phone_doc)
             existing_phones.add(unique_key)
         
-        # Insert only unique phones
+        # Insert only unique phones with error handling
         created_count = 0
         created_ids = []
         
         if phones_to_insert:
-            result = await phones_collection.insert_many(phones_to_insert)
-            created_count = len(result.inserted_ids)
-            created_ids = [str(id) for id in result.inserted_ids]
+            try:
+                result = await phones_collection.insert_many(phones_to_insert)
+                created_count = len(result.inserted_ids)
+                created_ids = [str(id) for id in result.inserted_ids]
+            except Exception as insert_error:
+                # Handle batch insert errors gracefully
+                if "duplicate key error" in str(insert_error).lower():
+                    # Try inserting one by one to identify which ones are duplicates
+                    for phone_doc in phones_to_insert:
+                        try:
+                            result = await phones_collection.insert_one(phone_doc)
+                            created_count += 1
+                            created_ids.append(str(result.inserted_id))
+                        except Exception as single_error:
+                            if "duplicate key error" in str(single_error).lower():
+                                duplicate_phones.append(f"{phone_doc['phone']} (lead: {phone_doc['lead_id']})")
+                            else:
+                                # Log other errors but don't break the process
+                                print(f"Error inserting phone {phone_doc.get('phone', 'unknown')}: {str(single_error)}")
+                else:
+                    # Re-raise non-duplicate errors
+                    raise insert_error
         
         # Prepare response message
         message = f"Successfully created {created_count} phones"
@@ -108,8 +127,17 @@ async def create_phones(
             message=message
         )
         
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to create phones: {str(e)}")
+        # Log the error but don't break the scraper
+        print(f"Unexpected error in create_phones: {str(e)}")
+        # Return a successful response with 0 created to keep scraper running
+        return BulkPhoneResponse(
+            created_count=0,
+            created_ids=[],
+            message=f"Error occurred but scraper continues: {str(e)[:100]}..."
+        )
 
 @router.get("/phone", response_model=List[PhoneResponse])
 async def get_phones(

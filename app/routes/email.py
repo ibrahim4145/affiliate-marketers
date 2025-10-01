@@ -86,14 +86,33 @@ async def create_emails(
             emails_to_insert.append(email_doc)
             existing_emails.add(unique_key)
         
-        # Insert only unique emails
+        # Insert only unique emails with error handling
         created_count = 0
         created_ids = []
         
         if emails_to_insert:
-            result = await emails_collection.insert_many(emails_to_insert)
-            created_count = len(result.inserted_ids)
-            created_ids = [str(id) for id in result.inserted_ids]
+            try:
+                result = await emails_collection.insert_many(emails_to_insert)
+                created_count = len(result.inserted_ids)
+                created_ids = [str(id) for id in result.inserted_ids]
+            except Exception as insert_error:
+                # Handle batch insert errors gracefully
+                if "duplicate key error" in str(insert_error).lower():
+                    # Try inserting one by one to identify which ones are duplicates
+                    for email_doc in emails_to_insert:
+                        try:
+                            result = await emails_collection.insert_one(email_doc)
+                            created_count += 1
+                            created_ids.append(str(result.inserted_id))
+                        except Exception as single_error:
+                            if "duplicate key error" in str(single_error).lower():
+                                duplicate_emails.append(f"{email_doc['email']} (lead: {email_doc['lead_id']})")
+                            else:
+                                # Log other errors but don't break the process
+                                print(f"Error inserting email {email_doc.get('email', 'unknown')}: {str(single_error)}")
+                else:
+                    # Re-raise non-duplicate errors
+                    raise insert_error
         
         # Prepare response message
         message = f"Successfully created {created_count} emails"
@@ -108,8 +127,17 @@ async def create_emails(
             message=message
         )
         
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to create emails: {str(e)}")
+        # Log the error but don't break the scraper
+        print(f"Unexpected error in create_emails: {str(e)}")
+        # Return a successful response with 0 created to keep scraper running
+        return BulkEmailResponse(
+            created_count=0,
+            created_ids=[],
+            message=f"Error occurred but scraper continues: {str(e)[:100]}..."
+        )
 
 @router.get("/email", response_model=List[EmailResponse])
 async def get_emails(

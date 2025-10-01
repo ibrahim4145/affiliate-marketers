@@ -20,20 +20,20 @@ class ScraperRunResponse(BaseModel):
     industry_name: str
     query: str
     start_param: int
-    progress_id: str
+    scraper_progress_id: str
 
 class UpdateProgressRequest(BaseModel):
     done: bool
     start_param: int
-    se_id: Optional[str] = None
+    search_engine_id: Optional[str] = None
 
 class UpdateProgressResponse(BaseModel):
     id: str
-    i_id: str
-    q_id: str
+    industry_id: str
+    query_id: str
     done: bool
     start_param: int
-    se_id: Optional[str] = None
+    search_engine_id: Optional[str] = None
     updated_at: datetime
 
 @router.get("/scraper/run", response_model=ScraperRunResponse)
@@ -89,11 +89,11 @@ async def run_scraper(db=Depends(get_database)):
             
             # Insert new progress record
             progress_doc = {
-                "i_id": str(industry["_id"]),
-                "q_id": str(query["_id"]),
+                "industry_id": str(industry["_id"]),
+                "query_id": str(query["_id"]),
                 "done": False,
                 "start_param": start_param,
-                "se_id": None,
+                "search_engine_id": None,
                 "created_at": datetime.utcnow()
             }
             result = await progress_collection.insert_one(progress_doc)
@@ -107,7 +107,7 @@ async def run_scraper(db=Depends(get_database)):
                 industry_name=industry["industry_name"],
                 query=processed_query,
                 start_param=start_param,
-                progress_id=str(result.inserted_id)
+                scraper_progress_id=str(result.inserted_id)
             )
         
         # Get the last progress record
@@ -120,9 +120,12 @@ async def run_scraper(db=Depends(get_database)):
         
         # If last record is not done, return the same task
         if not last_record.get("done", False):
-            # Get the industry and query for the last record
-            industry = await industries_collection.find_one({"_id": ObjectId(last_record["i_id"])})
-            query = await queries_collection.find_one({"_id": ObjectId(last_record["q_id"])})
+            # Get the industry and query for the last record (handle both old and new field names)
+            industry_id = last_record.get("industry_id") or last_record.get("i_id")
+            query_id = last_record.get("query_id") or last_record.get("q_id")
+            
+            industry = await industries_collection.find_one({"_id": ObjectId(industry_id)})
+            query = await queries_collection.find_one({"_id": ObjectId(query_id)})
             
             if not industry or not query:
                 raise HTTPException(status_code=500, detail="Referenced industry or query not found")
@@ -136,20 +139,20 @@ async def run_scraper(db=Depends(get_database)):
                 industry_name=industry["industry_name"],
                 query=processed_query,
                 start_param=last_record["start_param"],
-                progress_id=str(last_record["_id"])
+                scraper_progress_id=str(last_record["_id"])
             )
         
-        # Last record is done - determine next task
-        current_i_id = last_record["i_id"]
-        current_q_id = last_record["q_id"]
+        # Last record is done - determine next task (handle both old and new field names)
+        current_industry_id = last_record.get("industry_id") or last_record.get("i_id")
+        current_query_id = last_record.get("query_id") or last_record.get("q_id")
         
         # Find current industry and query indices
         current_industry_index = next(
-            (i for i, ind in enumerate(industries) if str(ind["_id"]) == current_i_id), 
+            (i for i, ind in enumerate(industries) if str(ind["_id"]) == current_industry_id), 
             -1
         )
         current_query_index = next(
-            (i for i, q in enumerate(queries) if str(q["_id"]) == current_q_id), 
+            (i for i, q in enumerate(queries) if str(q["_id"]) == current_query_id), 
             -1
         )
         
@@ -185,11 +188,11 @@ async def run_scraper(db=Depends(get_database)):
         
         # Insert new progress record
         progress_doc = {
-            "i_id": str(next_industry["_id"]),
-            "q_id": str(next_query["_id"]),
+            "industry_id": str(next_industry["_id"]),
+            "query_id": str(next_query["_id"]),
             "done": False,
             "start_param": start_param,
-            "se_id": None,
+            "search_engine_id": None,
             "created_at": datetime.utcnow()
         }
         result = await progress_collection.insert_one(progress_doc)
@@ -203,7 +206,7 @@ async def run_scraper(db=Depends(get_database)):
             industry_name=next_industry["industry_name"],
             query=processed_query,
             start_param=start_param,
-            progress_id=str(result.inserted_id)
+            scraper_progress_id=str(result.inserted_id)
         )
         
     except HTTPException:
@@ -211,9 +214,9 @@ async def run_scraper(db=Depends(get_database)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
-@router.patch("/scraper/update-progress/{progress_id}", response_model=UpdateProgressResponse)
+@router.patch("/scraper/update-progress/{scraper_progress_id}", response_model=UpdateProgressResponse)
 async def update_progress(
-    progress_id: str,
+    scraper_progress_id: str,
     request: UpdateProgressRequest,
     db=Depends(get_database)
 ):
@@ -225,9 +228,9 @@ async def update_progress(
         
         # Validate ObjectId format
         try:
-            object_id = ObjectId(progress_id)
+            object_id = ObjectId(scraper_progress_id)
         except Exception:
-            raise HTTPException(status_code=400, detail="Invalid progress ID format")
+            raise HTTPException(status_code=400, detail="Invalid scraper progress ID format")
         
         # Check if record exists
         existing_record = await progress_collection.find_one({"_id": object_id})
@@ -241,8 +244,8 @@ async def update_progress(
             "updated_at": datetime.utcnow()
         }
         
-        if request.se_id is not None:
-            update_data["se_id"] = request.se_id
+        if request.search_engine_id is not None:
+            update_data["search_engine_id"] = request.search_engine_id
         
         # Update the record
         await progress_collection.update_one(
@@ -255,11 +258,11 @@ async def update_progress(
         
         return UpdateProgressResponse(
             id=str(updated_record["_id"]),
-            i_id=updated_record["i_id"],
-            q_id=updated_record["q_id"],
+            industry_id=updated_record.get("industry_id") or updated_record.get("i_id"),
+            query_id=updated_record.get("query_id") or updated_record.get("q_id"),
             done=updated_record["done"],
             start_param=updated_record["start_param"],
-            se_id=updated_record.get("se_id"),
+            search_engine_id=updated_record.get("search_engine_id") or updated_record.get("se_id"),
             updated_at=updated_record["updated_at"]
         )
         

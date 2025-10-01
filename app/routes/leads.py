@@ -20,7 +20,7 @@ class LeadBase(BaseModel):
     domain: str = Field(..., description="Website domain (e.g., abc.com)")
     title: str = Field(..., description="Website title")
     description: str = Field(..., description="Website description")
-    progress_id: str = Field(..., description="Scraper progress ID")
+    scraper_progress_id: str = Field(..., description="Scraper progress ID")
     scraped: bool = Field(default=False, description="Whether email has been scraped")
     google_done: bool = Field(default=False, description="Whether Google search is done")
 
@@ -31,7 +31,7 @@ class LeadUpdate(BaseModel):
     domain: Optional[str] = None
     title: Optional[str] = None
     description: Optional[str] = None
-    progress_id: Optional[str] = None
+    scraper_progress_id: Optional[str] = None
     scraped: Optional[bool] = None
     google_done: Optional[bool] = None
 
@@ -143,7 +143,7 @@ async def create_leads(
 async def get_leads(
     skip: int = 0,
     limit: int = 100,
-    progress_id: Optional[str] = None,
+    scraper_progress_id: Optional[str] = None,
     scraped: Optional[bool] = None,
     google_done: Optional[bool] = None,
     db=Depends(get_database)
@@ -156,8 +156,8 @@ async def get_leads(
         
         # Build filter query
         filter_query = {}
-        if progress_id:
-            filter_query["progress_id"] = progress_id
+        if scraper_progress_id:
+            filter_query["scraper_progress_id"] = scraper_progress_id
         if scraped is not None:
             filter_query["scraped"] = scraped
         if google_done is not None:
@@ -167,14 +167,154 @@ async def get_leads(
         cursor = leads_collection.find(filter_query).skip(skip).limit(limit)
         leads = await cursor.to_list(length=limit)
         
-        # Convert ObjectIds to strings
+        # Convert ObjectIds to strings and handle backward compatibility
         for lead in leads:
             lead["_id"] = str(lead["_id"])
+            # Handle backward compatibility for field names
+            if "progress_id" in lead and "scraper_progress_id" not in lead:
+                lead["scraper_progress_id"] = lead["progress_id"]
         
         return leads
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to retrieve leads: {str(e)}")
+
+@router.get("/leads/combined-data")
+async def get_leads_combined(
+    skip: int = 0,
+    limit: int = 100,
+    scraper_progress_id: Optional[str] = None,
+    scraped: Optional[bool] = None,
+    google_done: Optional[bool] = None,
+    db=Depends(get_database)
+):
+    """
+    Get leads with all related data (industry, emails, phones, socials) in a single response.
+    """
+    try:
+        leads_collection = db.leads
+        industries_collection = db.industries
+        emails_collection = db.email
+        phones_collection = db.phone
+        socials_collection = db.social
+        
+        # Build filter query for leads
+        filter_query = {}
+        if scraper_progress_id:
+            filter_query["scraper_progress_id"] = scraper_progress_id
+        if scraped is not None:
+            filter_query["scraped"] = scraped
+        if google_done is not None:
+            filter_query["google_done"] = google_done
+        
+        # Get leads with pagination
+        cursor = leads_collection.find(filter_query).skip(skip).limit(limit)
+        leads = await cursor.to_list(length=limit)
+        
+        # Get all industries for mapping
+        industries_cursor = industries_collection.find({})
+        industries = await industries_cursor.to_list(length=None)
+        industries_map = {str(industry["_id"]): industry for industry in industries}
+        
+        # Get all emails, phones, and socials
+        emails_cursor = emails_collection.find({})
+        phones_cursor = phones_collection.find({})
+        socials_cursor = socials_collection.find({})
+        
+        emails = await emails_cursor.to_list(length=None)
+        phones = await phones_cursor.to_list(length=None)
+        socials = await socials_cursor.to_list(length=None)
+        
+        # Group contacts by lead_id
+        emails_by_lead = {}
+        phones_by_lead = {}
+        socials_by_lead = {}
+        
+        for email in emails:
+            lead_id = str(email["lead_id"])
+            if lead_id not in emails_by_lead:
+                emails_by_lead[lead_id] = []
+            emails_by_lead[lead_id].append({
+                "id": str(email["_id"]),
+                "email": email["email"],
+                "page_source": email["page_source"],
+                "created_at": email["created_at"].isoformat() if email.get("created_at") else None,
+                "updated_at": email["updated_at"].isoformat() if email.get("updated_at") else None
+            })
+        
+        for phone in phones:
+            lead_id = str(phone["lead_id"])
+            if lead_id not in phones_by_lead:
+                phones_by_lead[lead_id] = []
+            phones_by_lead[lead_id].append({
+                "id": str(phone["_id"]),
+                "phone": phone["phone"],
+                "page_source": phone["page_source"],
+                "created_at": phone["created_at"].isoformat() if phone.get("created_at") else None,
+                "updated_at": phone["updated_at"].isoformat() if phone.get("updated_at") else None
+            })
+        
+        for social in socials:
+            lead_id = str(social["lead_id"])
+            if lead_id not in socials_by_lead:
+                socials_by_lead[lead_id] = []
+            socials_by_lead[lead_id].append({
+                "id": str(social["_id"]),
+                "platform": social["platform"],
+                "handle": social["handle"],
+                "page_source": social["page_source"],
+                "created_at": social["created_at"].isoformat() if social.get("created_at") else None,
+                "updated_at": social["updated_at"].isoformat() if social.get("updated_at") else None
+            })
+        
+        # Combine all data
+        combined_leads = []
+        for lead in leads:
+            lead_id = str(lead["_id"])
+            
+            # Handle backward compatibility for field names
+            scraper_progress_id_value = lead.get("scraper_progress_id") or lead.get("progress_id")
+            
+            # Get industry information
+            industry_info = None
+            if scraper_progress_id_value:
+                # Try to find industry by scraper_progress_id or other means
+                for industry in industries:
+                    if str(industry["_id"]) == scraper_progress_id_value:
+                        industry_info = {
+                            "id": str(industry["_id"]),
+                            "name": industry.get("industry_name", "Unknown"),
+                            "description": industry.get("description", ""),
+                            "created_at": industry.get("created_at", "").isoformat() if industry.get("created_at") else None,
+                            "updated_at": industry.get("updated_at", "").isoformat() if industry.get("updated_at") else None
+                        }
+                        break
+            
+            combined_lead = {
+                "id": lead_id,
+                "domain": lead["domain"],
+                "title": lead["title"],
+                "description": lead["description"],
+                "scraper_progress_id": scraper_progress_id_value,
+                "scraped": lead["scraped"],
+                "google_done": lead["google_done"],
+                "created_at": lead["created_at"].isoformat() if lead.get("created_at") else None,
+                "updated_at": lead["updated_at"].isoformat() if lead.get("updated_at") else None,
+                "industry": industry_info,
+                "emails": emails_by_lead.get(lead_id, []),
+                "phones": phones_by_lead.get(lead_id, []),
+                "socials": socials_by_lead.get(lead_id, [])
+            }
+            combined_leads.append(combined_lead)
+        
+        return {
+            "leads": combined_leads,
+            "total_count": len(combined_leads),
+            "has_more": len(leads) == limit
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve combined leads data: {str(e)}")
 
 @router.get("/leads/{lead_id}", response_model=LeadResponse)
 async def get_lead(
@@ -305,9 +445,9 @@ async def get_leads_stats(db=Depends(get_database)):
         # Get google_done count
         google_done_leads = await leads_collection.count_documents({"google_done": True})
         
-        # Get leads by progress_id
+        # Get leads by scraper_progress_id
         progress_stats = await leads_collection.aggregate([
-            {"$group": {"_id": "$progress_id", "count": {"$sum": 1}}},
+            {"$group": {"_id": "$scraper_progress_id", "count": {"$sum": 1}}},
             {"$sort": {"count": -1}}
         ]).to_list(length=None)
         

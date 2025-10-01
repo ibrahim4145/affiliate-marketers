@@ -5,6 +5,7 @@ from app.routes import users
 from app.routes import scraper
 from app.routes import industries
 from app.routes import queries
+from app.routes import leads
 import os
 
 app = FastAPI(title="Affiliate Scraper API")
@@ -30,4 +31,5 @@ def cors_test():
 app.include_router(users.router, prefix="/api")
 app.include_router(industries.router, prefix="/api")
 app.include_router(queries.router, prefix="/api")
+app.include_router(leads.router, prefix="/api", tags=["leads"])
 app.include_router(scraper.router, prefix="/api", tags=["scraper"])

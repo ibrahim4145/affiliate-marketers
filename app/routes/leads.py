@@ -275,20 +275,33 @@ async def get_leads_combined(
             # Handle backward compatibility for field names
             scraper_progress_id_value = lead.get("scraper_progress_id") or lead.get("progress_id")
             
-            # Get industry information
+            # Get industry information by following the chain: lead -> scraper_progress -> industry
             industry_info = None
             if scraper_progress_id_value:
-                # Try to find industry by scraper_progress_id or other means
-                for industry in industries:
-                    if str(industry["_id"]) == scraper_progress_id_value:
-                        industry_info = {
-                            "id": str(industry["_id"]),
-                            "name": industry.get("industry_name", "Unknown"),
-                            "description": industry.get("description", ""),
-                            "created_at": industry.get("created_at", "").isoformat() if industry.get("created_at") else None,
-                            "updated_at": industry.get("updated_at", "").isoformat() if industry.get("updated_at") else None
-                        }
-                        break
+                try:
+                    # Step 1: Get scraper progress record to find industry_id
+                    progress_collection = db.scraped_progress
+                    progress_record = await progress_collection.find_one({"_id": ObjectId(scraper_progress_id_value)})
+                    
+                    if progress_record:
+                        # Step 2: Get industry_id from progress record (handle both old and new field names)
+                        industry_id = progress_record.get("industry_id") or progress_record.get("i_id")
+                        
+                        if industry_id:
+                            # Step 3: Find industry by industry_id
+                            for industry in industries:
+                                if str(industry["_id"]) == industry_id:
+                                    industry_info = {
+                                        "id": str(industry["_id"]),
+                                        "name": industry.get("industry_name", "Unknown"),
+                                        "description": industry.get("description", ""),
+                                        "created_at": industry.get("created_at", "").isoformat() if industry.get("created_at") else None,
+                                        "updated_at": industry.get("updated_at", "").isoformat() if industry.get("updated_at") else None
+                                    }
+                                    break
+                except Exception as e:
+                    print(f"Error getting industry info for lead {lead_id}: {str(e)}")
+                    # Continue without industry info if there's an error
             
             combined_lead = {
                 "id": lead_id,

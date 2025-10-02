@@ -9,7 +9,6 @@ from app.routes import leads
 from app.routes import email
 from app.routes import phone
 from app.routes import social
-from app.routes import contacts
 import os
 
 app = FastAPI(title="Affiliate Scraper API")
@@ -39,5 +38,4 @@ app.include_router(leads.router, prefix="/api", tags=["leads"])
 app.include_router(email.router, prefix="/api", tags=["email"])
 app.include_router(phone.router, prefix="/api", tags=["phone"])
 app.include_router(social.router, prefix="/api", tags=["social"])
-app.include_router(contacts.router, prefix="/api", tags=["contacts"])
 app.include_router(scraper.router, prefix="/api", tags=["scraper"])

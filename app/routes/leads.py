@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Depends
 from motor.motor_asyncio import AsyncIOMotorClient
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, EmailStr
 from typing import List, Optional
 from bson import ObjectId
 import os
@@ -516,3 +516,274 @@ async def ensure_unique_index(db=Depends(get_database)):
                 "index_name": "domain_1"
             }
         raise HTTPException(status_code=500, detail=f"Failed to create unique index: {str(e)}")
+
+# Contact models for lead contacts
+class EmailContact(BaseModel):
+    email: EmailStr = Field(..., description="Email address")
+    page_source: str = Field(..., description="Page source where email was found (e.g., '/contact')")
+
+class PhoneContact(BaseModel):
+    phone: str = Field(..., description="Phone number in any format")
+    page_source: str = Field(..., description="Page source where phone was found (e.g., '/contact')")
+
+class SocialContact(BaseModel):
+    platform: str = Field(..., description="Social media platform (instagram, facebook, x, linkedin, etc.)")
+    handle: str = Field(..., description="Social media handle/username")
+    page_source: str = Field(..., description="Page source where social handle was found (e.g., '/contact')")
+
+class LeadContactsData(BaseModel):
+    emails: List[EmailContact] = Field(default=[], description="List of emails to create")
+    phones: List[PhoneContact] = Field(default=[], description="List of phones to create")
+    socials: List[SocialContact] = Field(default=[], description="List of social handles to create")
+
+class LeadContactsResponse(BaseModel):
+    lead_updated: bool
+    emails_created: int
+    phones_created: int
+    socials_created: int
+    total_contacts_created: int
+    message: str
+
+@router.post("/leads/{lead_id}/contacts", response_model=LeadContactsResponse)
+async def add_lead_contacts(
+    lead_id: str,
+    contacts_data: LeadContactsData,
+    db=Depends(get_database)
+):
+    """
+    Add contacts to a lead and update its scraped status.
+    Handles cases where no contacts were found (only updates scraped status).
+    """
+    try:
+        leads_collection = db.leads
+        emails_collection = db.email
+        phones_collection = db.phone
+        socials_collection = db.social
+        
+        # Initialize response counters
+        lead_updated = False
+        emails_created = 0
+        phones_created = 0
+        socials_created = 0
+        total_contacts_created = 0
+        
+        # Step 1: Update lead scraped status
+        try:
+            lead_object_id = ObjectId(lead_id)
+            
+            # Update the lead's scraped status
+            update_result = await leads_collection.update_one(
+                {"_id": lead_object_id},
+                {
+                    "$set": {
+                        "scraped": True,
+                        "updated_at": datetime.utcnow()
+                    }
+                }
+            )
+            
+            if update_result.modified_count > 0:
+                lead_updated = True
+            else:
+                # Check if lead exists
+                lead_exists = await leads_collection.find_one({"_id": lead_object_id})
+                if not lead_exists:
+                    raise HTTPException(status_code=404, detail=f"Lead with ID {lead_id} not found")
+                
+        except Exception as e:
+            if "Invalid ObjectId" in str(e):
+                raise HTTPException(status_code=400, detail=f"Invalid lead ID format: {lead_id}")
+            raise HTTPException(status_code=500, detail=f"Failed to update lead: {str(e)}")
+        
+        # Step 2: Process contacts if any exist
+        contacts = contacts_data
+        
+        # Process emails
+        if contacts.emails:
+            emails_to_insert = []
+            existing_emails = set()
+            
+            for email in contacts.emails:
+                # Create unique key for duplicate checking
+                unique_key = f"{email.email}_{lead_id}"
+                
+                if unique_key in existing_emails:
+                    continue
+                
+                # Check if email already exists in database
+                existing_email = await emails_collection.find_one({
+                    "email": email.email,
+                    "lead_id": lead_id
+                })
+                if existing_email:
+                    continue
+                
+                # Add to batch
+                email_doc = {
+                    "lead_id": lead_id,
+                    "email": email.email,
+                    "page_source": email.page_source,
+                    "created_at": datetime.utcnow(),
+                    "updated_at": datetime.utcnow()
+                }
+                emails_to_insert.append(email_doc)
+                existing_emails.add(unique_key)
+            
+            # Insert emails
+            if emails_to_insert:
+                try:
+                    result = await emails_collection.insert_many(emails_to_insert)
+                    emails_created = len(result.inserted_ids)
+                except Exception as insert_error:
+                    if "duplicate key error" in str(insert_error).lower():
+                        # Try inserting one by one
+                        for email_doc in emails_to_insert:
+                            try:
+                                await emails_collection.insert_one(email_doc)
+                                emails_created += 1
+                            except Exception:
+                                pass  # Skip duplicates
+                    else:
+                        print(f"Error inserting emails: {str(insert_error)}")
+        
+        # Process phones
+        if contacts.phones:
+            phones_to_insert = []
+            existing_phones = set()
+            
+            for phone in contacts.phones:
+                # Create unique key for duplicate checking
+                unique_key = f"{phone.phone}_{lead_id}"
+                
+                if unique_key in existing_phones:
+                    continue
+                
+                # Check if phone already exists in database
+                existing_phone = await phones_collection.find_one({
+                    "phone": phone.phone,
+                    "lead_id": lead_id
+                })
+                if existing_phone:
+                    continue
+                
+                # Add to batch
+                phone_doc = {
+                    "lead_id": lead_id,
+                    "phone": phone.phone,
+                    "page_source": phone.page_source,
+                    "created_at": datetime.utcnow(),
+                    "updated_at": datetime.utcnow()
+                }
+                phones_to_insert.append(phone_doc)
+                existing_phones.add(unique_key)
+            
+            # Insert phones
+            if phones_to_insert:
+                try:
+                    result = await phones_collection.insert_many(phones_to_insert)
+                    phones_created = len(result.inserted_ids)
+                except Exception as insert_error:
+                    if "duplicate key error" in str(insert_error).lower():
+                        # Try inserting one by one
+                        for phone_doc in phones_to_insert:
+                            try:
+                                await phones_collection.insert_one(phone_doc)
+                                phones_created += 1
+                            except Exception:
+                                pass  # Skip duplicates
+                    else:
+                        print(f"Error inserting phones: {str(insert_error)}")
+        
+        # Process socials
+        if contacts.socials:
+            socials_to_insert = []
+            existing_socials = set()
+            
+            for social in contacts.socials:
+                # Create unique key for duplicate checking
+                unique_key = f"{social.platform}_{social.handle}_{lead_id}"
+                
+                if unique_key in existing_socials:
+                    continue
+                
+                # Check if social already exists in database
+                existing_social = await socials_collection.find_one({
+                    "platform": social.platform,
+                    "handle": social.handle,
+                    "lead_id": lead_id
+                })
+                if existing_social:
+                    continue
+                
+                # Add to batch
+                social_doc = {
+                    "lead_id": lead_id,
+                    "platform": social.platform,
+                    "handle": social.handle,
+                    "page_source": social.page_source,
+                    "created_at": datetime.utcnow(),
+                    "updated_at": datetime.utcnow()
+                }
+                socials_to_insert.append(social_doc)
+                existing_socials.add(unique_key)
+            
+            # Insert socials
+            if socials_to_insert:
+                try:
+                    result = await socials_collection.insert_many(socials_to_insert)
+                    socials_created = len(result.inserted_ids)
+                except Exception as insert_error:
+                    if "duplicate key error" in str(insert_error).lower():
+                        # Try inserting one by one
+                        for social_doc in socials_to_insert:
+                            try:
+                                await socials_collection.insert_one(social_doc)
+                                socials_created += 1
+                            except Exception:
+                                pass  # Skip duplicates
+                    else:
+                        print(f"Error inserting socials: {str(insert_error)}")
+        
+        # Calculate totals
+        total_contacts_created = emails_created + phones_created + socials_created
+        
+        # Prepare response message
+        message_parts = []
+        if lead_updated:
+            message_parts.append("lead marked as scraped")
+        
+        if emails_created > 0:
+            message_parts.append(f"{emails_created} emails")
+        if phones_created > 0:
+            message_parts.append(f"{phones_created} phones")
+        if socials_created > 0:
+            message_parts.append(f"{socials_created} social handles")
+        
+        if not message_parts:
+            message = "Lead marked as scraped (no new contacts found)"
+        else:
+            message = f"Successfully processed: {', '.join(message_parts)}"
+        
+        return LeadContactsResponse(
+            lead_updated=lead_updated,
+            emails_created=emails_created,
+            phones_created=phones_created,
+            socials_created=socials_created,
+            total_contacts_created=total_contacts_created,
+            message=message
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        # Log the error but don't break the scraper
+        print(f"Unexpected error in add_lead_contacts: {str(e)}")
+        # Return a successful response to keep scraper running
+        return LeadContactsResponse(
+            lead_updated=False,
+            emails_created=0,
+            phones_created=0,
+            socials_created=0,
+            total_contacts_created=0,
+            message=f"Error occurred but scraper continues: {str(e)[:100]}..."
+        )

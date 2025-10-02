@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field, EmailStr
 from typing import List, Optional
 from bson import ObjectId
 import os
+import asyncio
 from datetime import datetime
 
 router = APIRouter()
@@ -182,10 +183,11 @@ async def get_leads(
 @router.get("/leads/combined-data")
 async def get_leads_combined(
     skip: int = 0,
-    limit: int = 100,
+    limit: int = 50,
     scraper_progress_id: Optional[str] = None,
     scraped: Optional[bool] = None,
     google_done: Optional[bool] = None,
+    search: Optional[str] = None,
     db=Depends(get_database)
 ):
     """
@@ -207,6 +209,14 @@ async def get_leads_combined(
         if google_done is not None:
             filter_query["google_done"] = google_done
         
+        # Add search functionality
+        if search:
+            filter_query["$or"] = [
+                {"domain": {"$regex": search, "$options": "i"}},
+                {"title": {"$regex": search, "$options": "i"}},
+                {"description": {"$regex": search, "$options": "i"}}
+            ]
+        
         # Get leads with pagination
         cursor = leads_collection.find(filter_query).skip(skip).limit(limit)
         leads = await cursor.to_list(length=limit)
@@ -216,14 +226,16 @@ async def get_leads_combined(
         industries = await industries_cursor.to_list(length=None)
         industries_map = {str(industry["_id"]): industry for industry in industries}
         
-        # Get all emails, phones, and socials
-        emails_cursor = emails_collection.find({})
-        phones_cursor = phones_collection.find({})
-        socials_cursor = socials_collection.find({})
+        # Get only contacts for the current page leads (more efficient)
+        lead_ids = [str(lead["_id"]) for lead in leads]
         
-        emails = await emails_cursor.to_list(length=None)
-        phones = await phones_cursor.to_list(length=None)
-        socials = await socials_cursor.to_list(length=None)
+        # Use parallel queries for better performance
+        emails_task = emails_collection.find({"lead_id": {"$in": lead_ids}}).to_list(length=None)
+        phones_task = phones_collection.find({"lead_id": {"$in": lead_ids}}).to_list(length=None)
+        socials_task = socials_collection.find({"lead_id": {"$in": lead_ids}}).to_list(length=None)
+        
+        # Execute all queries in parallel
+        emails, phones, socials = await asyncio.gather(emails_task, phones_task, socials_task)
         
         # Group contacts by lead_id
         emails_by_lead = {}
@@ -320,10 +332,19 @@ async def get_leads_combined(
             }
             combined_leads.append(combined_lead)
         
+        # Get total count for pagination
+        total_count = await leads_collection.count_documents(filter_query)
+        
         return {
             "leads": combined_leads,
-            "total_count": len(combined_leads),
-            "has_more": len(leads) == limit
+            "pagination": {
+                "page": (skip // limit) + 1,
+                "limit": limit,
+                "total_count": total_count,
+                "total_pages": (total_count + limit - 1) // limit,
+                "has_next": skip + limit < total_count,
+                "has_prev": skip > 0
+            }
         }
         
     except Exception as e:

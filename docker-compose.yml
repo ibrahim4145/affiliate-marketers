@@ -5,6 +5,8 @@ services:
     restart: unless-stopped
     ports:
       - "8000:8000"
+    volumes:
+      - .:/app
     environment:
       - MONGO_URI=${MONGODB_URI:-mongodb+srv://mrashidali7540_db_user:HVQCSvsFjAoK0IcZ@cluster-as-0.rcuci44.mongodb.net/affiliate_marketers}
       - SECRET_KEY=${SECRET_KEY:-948ae46f504c639147e2a0f91155e61ec29fabe71c7dba1e6d22df845fceb9cbe32fc8199d8aa3476d12f57a55692ae3c86df7aec028232077d70e511e62115b}

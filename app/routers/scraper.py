@@ -1,6 +1,5 @@
 from fastapi import APIRouter, HTTPException, Depends
 from app.dependencies import get_database
-from app.utils.authentication import get_current_user
 from pydantic import BaseModel
 from typing import Optional
 from bson import ObjectId
@@ -31,16 +30,18 @@ class UpdateProgressResponse(BaseModel):
 
 @router.get("/run", response_model=ScraperRunResponse)
 async def run_scraper(
-    db=Depends(get_database),
-    current_user: dict = Depends(get_current_user)
+    db=Depends(get_database)
 ):
     """Assigns the next scraping task based on progress tracking."""
     try:
         # Get collections
-        from app.models.database import collections
-        industries_collection = collections.industries
-        queries_collection = collections.queries
-        progress_collection = collections.scraped_progress
+        from app.models.industry import industry_model
+        from app.models.query import query_model
+        from app.models.scraper import scraper_progress_model
+        
+        industries_collection = industry_model.collection
+        queries_collection = query_model.collection
+        progress_collection = scraper_progress_model.collection
         
         # Find the next incomplete progress record
         progress_record = await progress_collection.find_one({"done": False})
@@ -70,13 +71,12 @@ async def run_scraper(
 async def update_progress(
     progress_id: str,
     update_data: UpdateProgressRequest,
-    db=Depends(get_database),
-    current_user: dict = Depends(get_current_user)
+    db=Depends(get_database)
 ):
     """Update scraper progress."""
     try:
-        from app.models.database import collections
-        progress_collection = collections.scraped_progress
+        from app.models.scraper import scraper_progress_model
+        progress_collection = scraper_progress_model.collection
         
         # Check if progress record exists
         progress_record = await progress_collection.find_one({"_id": ObjectId(progress_id)})
@@ -117,13 +117,12 @@ async def update_progress(
 
 @router.get("/progress")
 async def get_progress(
-    db=Depends(get_database),
-    current_user: dict = Depends(get_current_user)
+    db=Depends(get_database)
 ):
     """Get all scraper progress records."""
     try:
-        from app.models.database import collections
-        progress_collection = collections.scraped_progress
+        from app.models.scraper import scraper_progress_model
+        progress_collection = scraper_progress_model.collection
         progress_records = await progress_collection.find({}).sort("created_at", -1).to_list(length=None)
         
         return [progress_helper(record) for record in progress_records]

@@ -1,6 +1,5 @@
 from fastapi import APIRouter, HTTPException, Depends
 from app.dependencies import get_database
-from app.utils.authentication import get_current_user
 from app.schemas.phone import PhoneCreate, PhoneUpdate, PhoneResponse, BulkPhoneCreate, BulkPhoneResponse
 from app.models.phone import phone_model
 from typing import List, Optional
@@ -13,7 +12,6 @@ router = APIRouter(prefix="/phone", tags=["Phone"])
 async def create_phones(
     bulk_data: BulkPhoneCreate,
     db=Depends(get_database),
-    current_user: dict = Depends(get_current_user)
 ):
     """Create multiple phones in bulk."""
     try:
@@ -46,7 +44,6 @@ async def get_phones(
     limit: int = 50,
     lead_id: Optional[str] = None,
     db=Depends(get_database),
-    current_user: dict = Depends(get_current_user)
 ):
     """Get phones with filtering and pagination."""
     try:
@@ -68,7 +65,6 @@ async def get_phones(
 @router.get("/{phone_id}", response_model=PhoneResponse)
 async def get_phone(
     phone_id: str,
-    current_user: dict = Depends(get_current_user)
 ):
     """Get a specific phone by ID."""
     try:
@@ -84,7 +80,6 @@ async def update_phone(
     phone_id: str,
     phone_update: PhoneUpdate,
     db=Depends(get_database),
-    current_user: dict = Depends(get_current_user)
 ):
     """Update a phone."""
     try:
@@ -114,7 +109,6 @@ async def update_phone(
 async def delete_phone(
     phone_id: str,
     db=Depends(get_database),
-    current_user: dict = Depends(get_current_user)
 ):
     """Delete a phone."""
     try:

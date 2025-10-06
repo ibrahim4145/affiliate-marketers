@@ -1,6 +1,5 @@
 from fastapi import APIRouter, HTTPException, Depends
 from app.dependencies import get_database
-from app.utils.authentication import get_current_user
 from app.schemas.email import EmailCreate, EmailUpdate, EmailResponse, BulkEmailCreate, BulkEmailResponse
 from app.models.email import email_model
 from typing import List, Optional
@@ -13,7 +12,6 @@ router = APIRouter(prefix="/email", tags=["Email"])
 async def create_emails(
     bulk_data: BulkEmailCreate,
     db=Depends(get_database),
-    current_user: dict = Depends(get_current_user)
 ):
     """Create multiple emails in bulk."""
     try:
@@ -46,7 +44,6 @@ async def get_emails(
     limit: int = 50,
     lead_id: Optional[str] = None,
     db=Depends(get_database),
-    current_user: dict = Depends(get_current_user)
 ):
     """Get emails with filtering and pagination."""
     try:
@@ -68,7 +65,6 @@ async def get_emails(
 @router.get("/{email_id}", response_model=EmailResponse)
 async def get_email(
     email_id: str,
-    current_user: dict = Depends(get_current_user)
 ):
     """Get a specific email by ID."""
     try:
@@ -84,7 +80,6 @@ async def update_email(
     email_id: str,
     email_update: EmailUpdate,
     db=Depends(get_database),
-    current_user: dict = Depends(get_current_user)
 ):
     """Update an email."""
     try:
@@ -114,7 +109,6 @@ async def update_email(
 async def delete_email(
     email_id: str,
     db=Depends(get_database),
-    current_user: dict = Depends(get_current_user)
 ):
     """Delete an email."""
     try:

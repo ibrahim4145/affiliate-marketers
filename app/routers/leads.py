@@ -1,12 +1,11 @@
 from fastapi import APIRouter, HTTPException, Depends
 from app.schemas.lead import LeadCreate, LeadUpdate, LeadResponse, BulkLeadCreate, BulkLeadResponse
-from app.schemas.contact import LeadContactsData, LeadContactsResponse
+from app.schemas.lead import LeadContactsData, LeadContactsResponse
 from app.crud.lead import (
     create_leads_bulk, get_leads, get_lead_by_id, update_lead, 
     delete_lead, get_leads_stats, add_lead_contacts
 )
 from app.dependencies import get_database
-from app.utils.authentication import get_current_user
 from typing import List, Optional, Dict, Any
 from bson import ObjectId
 import asyncio
@@ -32,7 +31,6 @@ async def get_leads_endpoint(
     scraped: Optional[bool] = None,
     google_done: Optional[bool] = None,
     search: Optional[str] = None,
-    current_user: dict = Depends(get_current_user)
 ):
     """Get leads with filtering and pagination."""
     try:
@@ -52,12 +50,17 @@ async def get_leads_combined(
 ):
     """Get leads with all related data (industry, emails, phones, socials) in a single response."""
     try:
-        from app.models.database import collections
-        leads_collection = collections.leads
-        industries_collection = collections.industries
-        emails_collection = collections.email
-        phones_collection = collections.phone
-        socials_collection = collections.social
+        from app.models.lead import lead_model
+        from app.models.industry import industry_model
+        from app.models.email import email_model
+        from app.models.phone import phone_model
+        from app.models.social import social_model
+        
+        leads_collection = lead_model.collection
+        industries_collection = industry_model.collection
+        emails_collection = email_model.collection
+        phones_collection = phone_model.collection
+        socials_collection = social_model.collection
         
         # Build filter query for leads
         filter_query = {}
@@ -105,7 +108,8 @@ async def get_leads_combined(
                     scraper_progress_id = lead.get("scraper_progress_id")
                     if scraper_progress_id:
                         try:
-                            progress_collection = collections.scraped_progress
+                            from app.models.scraper import scraper_progress_model
+                            progress_collection = scraper_progress_model.collection
                             progress_record = await progress_collection.find_one({"_id": ObjectId(scraper_progress_id)})
                             if progress_record:
                                 industry_id = progress_record.get("industry_id") or progress_record.get("i_id")
@@ -198,7 +202,8 @@ async def get_leads_combined(
             scraper_progress_id = lead.get("scraper_progress_id")
             if scraper_progress_id:
                 try:
-                    progress_collection = collections.scraped_progress
+                    from app.models.scraper import scraper_progress_model
+                    progress_collection = scraper_progress_model.collection
                     progress_record = await progress_collection.find_one({"_id": ObjectId(scraper_progress_id)})
                     if progress_record:
                         industry_id = progress_record.get("industry_id") or progress_record.get("i_id")
@@ -250,7 +255,6 @@ async def get_leads_combined(
 @router.get("/{lead_id}", response_model=LeadResponse)
 async def get_lead(
     lead_id: str,
-    current_user: dict = Depends(get_current_user)
 ):
     """Get a specific lead by ID."""
     lead = await get_lead_by_id(lead_id)
@@ -262,7 +266,6 @@ async def get_lead(
 async def update_lead_endpoint(
     lead_id: str,
     lead_update: LeadUpdate,
-    current_user: dict = Depends(get_current_user)
 ):
     """Update a lead."""
     try:
@@ -276,7 +279,6 @@ async def update_lead_endpoint(
 @router.delete("/{lead_id}")
 async def delete_lead_endpoint(
     lead_id: str,
-    current_user: dict = Depends(get_current_user)
 ):
     """Delete a lead."""
     success = await delete_lead(lead_id)
@@ -297,7 +299,6 @@ async def get_leads_stats_endpoint(db=Depends(get_database)):
 async def add_lead_contacts_endpoint(
     lead_id: str,
     contacts_data: LeadContactsData,
-    current_user: dict = Depends(get_current_user)
 ):
     """Add contacts to a lead."""
     try:

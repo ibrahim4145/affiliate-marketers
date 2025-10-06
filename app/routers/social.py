@@ -1,6 +1,5 @@
 from fastapi import APIRouter, HTTPException, Depends
 from app.dependencies import get_database
-from app.utils.authentication import get_current_user
 from app.schemas.social import SocialCreate, SocialUpdate, SocialResponse, BulkSocialCreate, BulkSocialResponse
 from app.models.social import social_model
 from typing import List, Optional
@@ -13,7 +12,6 @@ router = APIRouter(prefix="/social", tags=["Social"])
 async def create_socials(
     bulk_data: BulkSocialCreate,
     db=Depends(get_database),
-    current_user: dict = Depends(get_current_user)
 ):
     """Create multiple social handles in bulk."""
     try:
@@ -46,7 +44,6 @@ async def get_socials(
     limit: int = 50,
     lead_id: Optional[str] = None,
     db=Depends(get_database),
-    current_user: dict = Depends(get_current_user)
 ):
     """Get social handles with filtering and pagination."""
     try:
@@ -68,7 +65,6 @@ async def get_socials(
 @router.get("/{social_id}", response_model=SocialResponse)
 async def get_social(
     social_id: str,
-    current_user: dict = Depends(get_current_user)
 ):
     """Get a specific social handle by ID."""
     try:
@@ -84,7 +80,6 @@ async def update_social(
     social_id: str,
     social_update: SocialUpdate,
     db=Depends(get_database),
-    current_user: dict = Depends(get_current_user)
 ):
     """Update a social handle."""
     try:
@@ -116,7 +111,6 @@ async def update_social(
 async def delete_social(
     social_id: str,
     db=Depends(get_database),
-    current_user: dict = Depends(get_current_user)
 ):
     """Delete a social handle."""
     try:

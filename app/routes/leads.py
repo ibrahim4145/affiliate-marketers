@@ -194,7 +194,6 @@ async def get_leads_combined(
     Get leads with all related data (industry, emails, phones, socials) in a single response.
     """
     try:
-        print(f"=== SEARCH DEBUG: search parameter = '{search}' ===")
         leads_collection = db.leads
         industries_collection = db.industries
         emails_collection = db.email
@@ -212,22 +211,15 @@ async def get_leads_combined(
         
         # Add search functionality
         if search:
-            print(f"=== EXECUTING SEARCH FOR: '{search}' ===")
             # Build search query for leads - only search in domain and title
             filter_query["$or"] = [
                 {"domain": {"$regex": search, "$options": "i"}},
                 {"title": {"$regex": search, "$options": "i"}}
             ]
-            print(f"Search query for '{search}': {filter_query}")
-        else:
-            print(f"=== NO SEARCH PARAMETER ===")
         
         # Get leads with pagination
         cursor = leads_collection.find(filter_query).skip(skip).limit(limit)
         leads = await cursor.to_list(length=limit)
-        print(f"Initial MongoDB query returned {len(leads)} leads")
-        for lead in leads:
-            print(f"  - {lead.get('domain')} | {lead.get('title')}")
         
         # Post-process search results to ensure accuracy
         if search:
@@ -246,13 +238,8 @@ async def get_leads_combined(
                 domain = lead.get("domain", "").lower()
                 title = lead.get("title", "").lower()
                 
-                print(f"Checking lead {lead.get('_id')}: domain='{domain}', title='{title}'")
-                print(f"  - 'sale' in domain: {'sale' in domain}")
-                print(f"  - 'sale' in title: {'sale' in title}")
-                
                 if (search_lower in domain or search_lower in title):
                     lead_matches = True
-                    print(f"Lead {lead.get('_id')} matches in domain/title: {domain} | {title}")
                 
                 # If not found in lead fields, check industry
                 if not lead_matches:
@@ -268,19 +255,13 @@ async def get_leads_combined(
                                     industry_name = industry.get("industry_name", "").lower()
                                     if search_lower in industry_name:
                                         lead_matches = True
-                                        print(f"Lead {lead.get('_id')} matches in industry: {industry_name}")
                         except Exception as e:
-                            print(f"Error checking industry for lead {lead.get('_id')}: {str(e)}")
+                            pass
                 
                 if lead_matches:
                     filtered_leads.append(lead)
-                else:
-                    print(f"Lead {lead.get('_id')} does NOT match search term '{search}'")
             
             leads = filtered_leads
-            print(f"After filtering: {len(leads)} leads remain")
-            for lead in leads:
-                print(f"  - {lead.get('domain')} | {lead.get('title')}")
         
         # Get all industries for mapping
         industries_cursor = industries_collection.find({})

@@ -4,8 +4,8 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 from fastapi import HTTPException, status, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from app.models import TokenData
-from app.db import db
+from app.schemas.user import TokenData
+from app.models.user import user_model
 from bson import ObjectId
 import os
 
@@ -82,7 +82,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
 
 async def get_user_by_email(email: str):
     """Get user by email from database."""
-    user = await db["users"].find_one({"email": email})
+    user = await user_model.find_by_email(email)
     return user
 
 async def authenticate_user(email: str, password: str):

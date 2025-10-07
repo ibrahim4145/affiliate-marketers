@@ -7,6 +7,80 @@ from datetime import datetime
 
 router = APIRouter(prefix="/scraper", tags=["Scraper"])
 
+async def create_next_progress_record():
+    """Create the next progress record in the sequence: niche -> query -> sub-query."""
+    from app.models.query import query_model
+    from app.models.niche import niche_model
+    from app.models.sub_query import sub_query_model
+    from app.models.scraper import scraper_progress_model
+    
+    # Get all niches and queries
+    niches = await niche_model.collection.find({}).sort("created_at", 1).to_list(length=None)
+    queries = await query_model.collection.find({}).sort("created_at", 1).to_list(length=None)
+    
+    if not niches or not queries:
+        return None
+    
+    # Find the next combination to process
+    for niche in niches:
+        for query in queries:
+            # Check if main query progress exists
+            main_progress = await scraper_progress_model.collection.find_one({
+                "niche_id": niche["_id"],
+                "query_id": query["_id"],
+                "$or": [
+                    {"sub_query_id": {"$exists": False}},
+                    {"sub_query_id": None}
+                ]
+            })
+            
+            if not main_progress:
+                # Create main query progress
+                progress_data = {
+                    "niche_id": niche["_id"],
+                    "query_id": query["_id"],
+                    "sub_query_id": None,
+                    "done": False,
+                    "start_param": 0,
+                    "search_engine_id": None
+                }
+                return await scraper_progress_model.create(progress_data)
+            
+            # Check if main query is done
+            if main_progress.get("done", False):
+                # Main query is done, check for sub-queries
+                sub_queries = await sub_query_model.find_by_query_id(str(query["_id"]))
+                
+                for sub_query in sub_queries:
+                    # Check if sub-query progress exists
+                    sub_progress = await scraper_progress_model.collection.find_one({
+                        "niche_id": niche["_id"],
+                        "query_id": query["_id"],
+                        "sub_query_id": sub_query["_id"]
+                    })
+                    
+                    if not sub_progress:
+                        # Create sub-query progress
+                        progress_data = {
+                            "niche_id": niche["_id"],
+                            "query_id": query["_id"],
+                            "sub_query_id": sub_query["_id"],
+                            "done": False,
+                            "start_param": 0,
+                            "search_engine_id": None
+                        }
+                        return await scraper_progress_model.create(progress_data)
+                    
+                    # Check if sub-query is done
+                    if not sub_progress.get("done", False):
+                        return sub_progress
+            else:
+                # Main query not done, return it
+                return main_progress
+    
+    return None
+
+
 # Scraper Schemas
 class ScraperRunResponse(BaseModel):
     niche_name: str
@@ -43,11 +117,14 @@ async def run_scraper(
         queries_collection = query_model.collection
         progress_collection = scraper_progress_model.collection
         
-        # Find the next incomplete progress record
+        # Check if there are any progress records
         progress_record = await progress_collection.find_one({"done": False})
         
         if not progress_record:
-            raise HTTPException(status_code=404, detail="No pending scraping tasks found")
+            # No progress records exist, create the first one
+            progress_record = await create_next_progress_record()
+            if not progress_record:
+                raise HTTPException(status_code=404, detail="No queries or niches found")
         
         # Get niche and query details
         niche = await niches_collection.find_one({"_id": progress_record["niche_id"]})
@@ -56,9 +133,21 @@ async def run_scraper(
         if not niche or not query:
             raise HTTPException(status_code=404, detail="Associated niche or query not found")
         
+        # Check if this is a sub-query and modify the query accordingly
+        if progress_record.get("sub_query_id"):
+            from app.models.sub_query import sub_query_model
+            sub_query = await sub_query_model.find_by_id(str(progress_record["sub_query_id"]))
+            if sub_query:
+                # Replace {{query}} with the parent query
+                modified_query = sub_query["sub_query"].replace("{{query}}", query["query"])
+            else:
+                modified_query = query["query"]
+        else:
+            modified_query = query["query"]
+        
         return ScraperRunResponse(
             niche_name=niche["niche_name"],
-            query=query["query"],
+            query=modified_query,
             start_param=progress_record["start_param"],
             scraper_progress_id=str(progress_record["_id"])
         )
@@ -128,6 +217,7 @@ async def get_progress(
         return [progress_helper(record) for record in progress_records]
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to retrieve progress: {str(e)}")
+
 
 def progress_helper(progress) -> dict:
     """Convert MongoDB document to progress response."""

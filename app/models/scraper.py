@@ -20,7 +20,9 @@ class ScraperProgressModel:
         """Create scraper progress-specific indexes."""
         await self.collection.create_index("niche_id")
         await self.collection.create_index("query_id")
+        await self.collection.create_index("sub_query_id")
         await self.collection.create_index("done")
+        await self.collection.create_index([("query_id", 1), ("sub_query_id", 1)])
     
     async def find_by_id(self, progress_id: str):
         """Find progress by ID."""
@@ -32,6 +34,7 @@ class ScraperProgressModel:
     async def find_incomplete(self):
         """Find next incomplete progress record."""
         return await self.collection.find_one({"done": False})
+    
     
     async def find_all(self):
         """Find all progress records."""
@@ -56,6 +59,8 @@ class ScraperProgressModel:
     async def delete(self, progress_id: str):
         """Delete progress record."""
         return await self.collection.delete_one({"_id": ObjectId(progress_id)})
+    
+    
 
 # Global scraper model instance
 scraper_progress_model = ScraperProgressModel()

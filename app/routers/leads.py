@@ -51,13 +51,13 @@ async def get_leads_combined(
     """Get leads with all related data (industry, emails, phones, socials) in a single response."""
     try:
         from app.models.lead import lead_model
-        from app.models.industry import industry_model
+        from app.models.niche import niche_model
         from app.models.email import email_model
         from app.models.phone import phone_model
         from app.models.social import social_model
         
         leads_collection = lead_model.collection
-        industries_collection = industry_model.collection
+        niches_collection = niche_model.collection
         emails_collection = email_model.collection
         phones_collection = phone_model.collection
         socials_collection = social_model.collection
@@ -126,10 +126,10 @@ async def get_leads_combined(
             
             leads = filtered_leads
         
-        # Get all industries for mapping
-        industries_cursor = industries_collection.find({})
-        industries = await industries_cursor.to_list(length=None)
-        industries_map = {str(industry["_id"]): industry for industry in industries}
+        # Get all niches for mapping
+        niches_cursor = niches_collection.find({})
+        niches = await niches_cursor.to_list(length=None)
+        niches_map = {str(niche["_id"]): niche for niche in niches}
         
         # Get all lead IDs for parallel queries
         lead_ids = [lead["_id"] for lead in leads]
@@ -212,21 +212,21 @@ async def get_leads_combined(
         for lead in leads:
             lead_id = str(lead["_id"])
             
-            # Get industry info - default to Unknown
-            industry_info = {
+            # Get niche info - default to Unknown
+            niche_info = {
                 "id": "unknown",
                 "name": "Unknown",
-                "description": "Industry information not available"
+                "description": "Niche information not available"
             }
             
-            # First try direct industry_id on lead
-            industry_id = lead.get("industry_id")
-            if industry_id and str(industry_id) in industries_map:
-                industry = industries_map[str(industry_id)]
-                industry_info = {
-                    "id": str(industry["_id"]),
-                    "name": industry["industry_name"],
-                    "description": industry.get("description")
+            # First try direct niche_id on lead
+            niche_id = lead.get("niche_id")
+            if niche_id and str(niche_id) in niches_map:
+                niche = niches_map[str(niche_id)]
+                niche_info = {
+                    "id": str(niche["_id"]),
+                    "name": niche["niche_name"],
+                    "description": niche.get("description")
                 }
             else:
                 # Try scraper_progress_id lookup - check multiple possible field names
@@ -237,13 +237,13 @@ async def get_leads_combined(
                         progress_collection = scraper_progress_model.collection
                         progress_record = await progress_collection.find_one({"_id": ObjectId(scraper_progress_id)})
                         if progress_record:
-                            industry_id = progress_record.get("industry_id") or progress_record.get("i_id")
-                            if industry_id and str(industry_id) in industries_map:
-                                industry = industries_map[str(industry_id)]
-                                industry_info = {
-                                    "id": str(industry["_id"]),
-                                    "name": industry["industry_name"],
-                                    "description": industry.get("description")
+                            niche_id = progress_record.get("niche_id") or progress_record.get("i_id")
+                            if niche_id and str(niche_id) in niches_map:
+                                niche = niches_map[str(niche_id)]
+                                niche_info = {
+                                    "id": str(niche["_id"]),
+                                    "name": niche["niche_name"],
+                                    "description": niche.get("description")
                                 }
                     except Exception:
                         pass
@@ -258,7 +258,7 @@ async def get_leads_combined(
                 "google_done": lead.get("google_done", False),
                 "created_at": lead.get("created_at"),
                 "updated_at": lead.get("updated_at"),
-                "industry": industry_info,
+                "niche": niche_info,
                 "emails": emails_by_lead.get(lead_id, []),
                 "phones": phones_by_lead.get(lead_id, []),
                 "socials": socials_by_lead.get(lead_id, [])

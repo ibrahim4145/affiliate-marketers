@@ -1,9 +1,9 @@
 # backend/app/main.py
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.routers import users, industries, queries, leads, email, phone, social, scraper, sub_queries, categories
+from app.routers import users, niches, queries, leads, email, phone, social, scraper, sub_queries, categories
 from app.models.user import user_model
-from app.models.industry import industry_model
+from app.models.niche import niche_model
 from app.models.query import query_model
 from app.models.lead import lead_model
 from app.models.email import email_model
@@ -34,7 +34,7 @@ def cors_test():
 
 # Include all routers
 app.include_router(users.router, prefix="/api")
-app.include_router(industries.router, prefix="/api")
+app.include_router(niches.router, prefix="/api")
 app.include_router(queries.router, prefix="/api")
 app.include_router(leads.router, prefix="/api")
 app.include_router(email.router, prefix="/api")
@@ -49,7 +49,7 @@ async def startup_event():
     """Create all necessary indexes on startup."""
     try:
         await user_model.create_indexes()
-        await industry_model.create_indexes()
+        await niche_model.create_indexes()
         await query_model.create_indexes()
         await lead_model.create_indexes()
         await email_model.create_indexes()

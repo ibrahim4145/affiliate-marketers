@@ -138,19 +138,25 @@ async def get_leads_combined(
         async def get_emails_for_leads():
             if not lead_ids:
                 return []
-            emails_cursor = emails_collection.find({"lead_id": {"$in": lead_ids}})
+            # Convert lead_ids to strings since contact collections store lead_id as string
+            lead_id_strings = [str(lead_id) for lead_id in lead_ids]
+            emails_cursor = emails_collection.find({"lead_id": {"$in": lead_id_strings}})
             return await emails_cursor.to_list(length=None)
         
         async def get_phones_for_leads():
             if not lead_ids:
                 return []
-            phones_cursor = phones_collection.find({"lead_id": {"$in": lead_ids}})
+            # Convert lead_ids to strings since contact collections store lead_id as string
+            lead_id_strings = [str(lead_id) for lead_id in lead_ids]
+            phones_cursor = phones_collection.find({"lead_id": {"$in": lead_id_strings}})
             return await phones_cursor.to_list(length=None)
         
         async def get_socials_for_leads():
             if not lead_ids:
                 return []
-            socials_cursor = socials_collection.find({"lead_id": {"$in": lead_ids}})
+            # Convert lead_ids to strings since contact collections store lead_id as string
+            lead_id_strings = [str(lead_id) for lead_id in lead_ids]
+            socials_cursor = socials_collection.find({"lead_id": {"$in": lead_id_strings}})
             return await socials_cursor.to_list(length=None)
         
         # Execute parallel queries
@@ -167,8 +173,11 @@ async def get_leads_combined(
             if lead_id not in emails_by_lead:
                 emails_by_lead[lead_id] = []
             emails_by_lead[lead_id].append({
+                "id": str(email["_id"]),
                 "email": email["email"],
-                "page_source": email.get("page_source", "")
+                "page_source": email.get("page_source", ""),
+                "created_at": email.get("created_at"),
+                "updated_at": email.get("updated_at")
             })
         
         phones_by_lead = {}
@@ -177,8 +186,11 @@ async def get_leads_combined(
             if lead_id not in phones_by_lead:
                 phones_by_lead[lead_id] = []
             phones_by_lead[lead_id].append({
+                "id": str(phone["_id"]),
                 "phone": phone["phone"],
-                "page_source": phone.get("page_source", "")
+                "page_source": phone.get("page_source", ""),
+                "created_at": phone.get("created_at"),
+                "updated_at": phone.get("updated_at")
             })
         
         socials_by_lead = {}
@@ -187,9 +199,12 @@ async def get_leads_combined(
             if lead_id not in socials_by_lead:
                 socials_by_lead[lead_id] = []
             socials_by_lead[lead_id].append({
+                "id": str(social["_id"]),
                 "platform": social["platform"],
                 "handle": social["handle"],
-                "page_source": social.get("page_source", "")
+                "page_source": social.get("page_source", ""),
+                "created_at": social.get("created_at"),
+                "updated_at": social.get("updated_at")
             })
         
         # Build response with combined data
@@ -197,25 +212,41 @@ async def get_leads_combined(
         for lead in leads:
             lead_id = str(lead["_id"])
             
-            # Get industry info
-            industry_info = None
-            scraper_progress_id = lead.get("scraper_progress_id")
-            if scraper_progress_id:
-                try:
-                    from app.models.scraper import scraper_progress_model
-                    progress_collection = scraper_progress_model.collection
-                    progress_record = await progress_collection.find_one({"_id": ObjectId(scraper_progress_id)})
-                    if progress_record:
-                        industry_id = progress_record.get("industry_id") or progress_record.get("i_id")
-                        if industry_id and str(industry_id) in industries_map:
-                            industry = industries_map[str(industry_id)]
-                            industry_info = {
-                                "id": str(industry["_id"]),
-                                "name": industry["industry_name"],
-                                "description": industry.get("description")
-                            }
-                except Exception:
-                    pass
+            # Get industry info - default to Unknown
+            industry_info = {
+                "id": "unknown",
+                "name": "Unknown",
+                "description": "Industry information not available"
+            }
+            
+            # First try direct industry_id on lead
+            industry_id = lead.get("industry_id")
+            if industry_id and str(industry_id) in industries_map:
+                industry = industries_map[str(industry_id)]
+                industry_info = {
+                    "id": str(industry["_id"]),
+                    "name": industry["industry_name"],
+                    "description": industry.get("description")
+                }
+            else:
+                # Try scraper_progress_id lookup - check multiple possible field names
+                scraper_progress_id = lead.get("scraper_progress_id") or lead.get("scraper_progress") or lead.get("progress_id")
+                if scraper_progress_id:
+                    try:
+                        from app.models.scraper import scraper_progress_model
+                        progress_collection = scraper_progress_model.collection
+                        progress_record = await progress_collection.find_one({"_id": ObjectId(scraper_progress_id)})
+                        if progress_record:
+                            industry_id = progress_record.get("industry_id") or progress_record.get("i_id")
+                            if industry_id and str(industry_id) in industries_map:
+                                industry = industries_map[str(industry_id)]
+                                industry_info = {
+                                    "id": str(industry["_id"]),
+                                    "name": industry["industry_name"],
+                                    "description": industry.get("description")
+                                }
+                    except Exception:
+                        pass
             
             combined_lead = {
                 "id": lead_id,
@@ -236,15 +267,20 @@ async def get_leads_combined(
         
         # Calculate pagination info
         total_count = await leads_collection.count_documents(filter_query)
+        total_pages = (total_count + limit - 1) // limit  # Ceiling division
+        current_page = (skip // limit) + 1
         has_next = (skip + limit) < total_count
-        next_cursor = str(leads[-1]["_id"]) if leads and has_next else None
+        has_prev = skip > 0
         
         return {
             "leads": combined_leads,
             "pagination": {
+                "page": current_page,
                 "limit": limit,
+                "total_count": total_count,
+                "total_pages": total_pages,
                 "has_next": has_next,
-                "next_cursor": next_cursor,
+                "has_prev": has_prev,
                 "count": len(combined_leads)
             }
         }

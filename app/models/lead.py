@@ -102,13 +102,20 @@ class LeadModel:
         total_leads = await self.collection.count_documents({})
         scraped_count = await self.collection.count_documents({"scraped": True})
         google_done_count = await self.collection.count_documents({"google_done": True})
-        pending_count = await self.collection.count_documents({"scraped": False, "google_done": False})
+        # New leads are those that are not scraped (scraped: False or scraped: null)
+        new_count = await self.collection.count_documents({
+            "$or": [
+                {"scraped": False},
+                {"scraped": {"$exists": False}},
+                {"scraped": None}
+            ]
+        })
         
         return {
             "total_leads": total_leads,
             "scraped_leads": scraped_count,
             "google_done_leads": google_done_count,
-            "pending_leads": pending_count
+            "unscraped_leads": new_count
         }
 
 # Global lead model instance

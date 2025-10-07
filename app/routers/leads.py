@@ -48,7 +48,7 @@ async def get_leads_combined(
     search: Optional[str] = None,
     db=Depends(get_database)
 ):
-    """Get leads with all related data (industry, emails, phones, socials) in a single response."""
+    """Get leads with all related data (niche, emails, phones, socials) in a single response."""
     try:
         from app.models.lead import lead_model
         from app.models.niche import niche_model
@@ -85,10 +85,10 @@ async def get_leads_combined(
         
         # Post-process search results to ensure accuracy
         if search:
-            # Get all industries for matching
-            industries_cursor = industries_collection.find({})
-            all_industries = await industries_cursor.to_list(length=None)
-            industries_map = {str(industry["_id"]): industry for industry in all_industries}
+            # Get all niches for matching
+            niches_cursor = niches_collection.find({})
+            all_niches = await niches_cursor.to_list(length=None)
+            niches_map = {str(niche["_id"]): niche for niche in all_niches}
             
             # Filter leads to only include those where search term actually appears
             filtered_leads = []
@@ -103,7 +103,7 @@ async def get_leads_combined(
                 if (search_lower in domain or search_lower in title):
                     lead_matches = True
                 
-                # If not found in lead fields, check industry
+                # If not found in lead fields, check niche
                 if not lead_matches:
                     scraper_progress_id = lead.get("scraper_progress_id")
                     if scraper_progress_id:
@@ -112,11 +112,11 @@ async def get_leads_combined(
                             progress_collection = scraper_progress_model.collection
                             progress_record = await progress_collection.find_one({"_id": ObjectId(scraper_progress_id)})
                             if progress_record:
-                                industry_id = progress_record.get("industry_id") or progress_record.get("i_id")
-                                if industry_id and str(industry_id) in industries_map:
-                                    industry = industries_map[str(industry_id)]
-                                    industry_name = industry.get("industry_name", "").lower()
-                                    if search_lower in industry_name:
+                                niche_id = progress_record.get("niche_id") or progress_record.get("i_id")
+                                if niche_id and str(niche_id) in niches_map:
+                                    niche = niches_map[str(niche_id)]
+                                    niche_name = niche.get("niche_name", "").lower()
+                                    if search_lower in niche_name:
                                         lead_matches = True
                         except Exception as e:
                             pass

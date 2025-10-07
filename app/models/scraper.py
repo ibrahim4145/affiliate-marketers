@@ -18,7 +18,7 @@ class ScraperProgressModel:
     
     async def create_indexes(self):
         """Create scraper progress-specific indexes."""
-        await self.collection.create_index("industry_id")
+        await self.collection.create_index("niche_id")
         await self.collection.create_index("query_id")
         await self.collection.create_index("done")
     

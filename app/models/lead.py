@@ -21,7 +21,7 @@ class LeadModel:
         await self.collection.create_index("domain", unique=True)
         await self.collection.create_index("title")
         await self.collection.create_index([("title", "text"), ("description", "text")])
-        await self.collection.create_index("industry_id")
+        await self.collection.create_index("niche_id")
         await self.collection.create_index("scraped")
         await self.collection.create_index("google_done")
         await self.collection.create_index("scraper_progress_id")

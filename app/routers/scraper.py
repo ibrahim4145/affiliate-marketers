@@ -9,7 +9,7 @@ router = APIRouter(prefix="/scraper", tags=["Scraper"])
 
 # Scraper Schemas
 class ScraperRunResponse(BaseModel):
-    industry_name: str
+    niche_name: str
     query: str
     start_param: int
     scraper_progress_id: str
@@ -21,7 +21,7 @@ class UpdateProgressRequest(BaseModel):
 
 class UpdateProgressResponse(BaseModel):
     id: str
-    industry_id: str
+    niche_id: str
     query_id: str
     done: bool
     start_param: int
@@ -35,11 +35,11 @@ async def run_scraper(
     """Assigns the next scraping task based on progress tracking."""
     try:
         # Get collections
-        from app.models.industry import industry_model
+        from app.models.niche import niche_model
         from app.models.query import query_model
         from app.models.scraper import scraper_progress_model
         
-        industries_collection = industry_model.collection
+        niches_collection = niche_model.collection
         queries_collection = query_model.collection
         progress_collection = scraper_progress_model.collection
         
@@ -49,15 +49,15 @@ async def run_scraper(
         if not progress_record:
             raise HTTPException(status_code=404, detail="No pending scraping tasks found")
         
-        # Get industry and query details
-        industry = await industries_collection.find_one({"_id": progress_record["industry_id"]})
+        # Get niche and query details
+        niche = await niches_collection.find_one({"_id": progress_record["niche_id"]})
         query = await queries_collection.find_one({"_id": progress_record["query_id"]})
         
-        if not industry or not query:
-            raise HTTPException(status_code=404, detail="Associated industry or query not found")
+        if not niche or not query:
+            raise HTTPException(status_code=404, detail="Associated niche or query not found")
         
         return ScraperRunResponse(
-            industry_name=industry["industry_name"],
+            niche_name=niche["niche_name"],
             query=query["query"],
             start_param=progress_record["start_param"],
             scraper_progress_id=str(progress_record["_id"])
@@ -103,7 +103,7 @@ async def update_progress(
         updated_record = await progress_collection.find_one({"_id": ObjectId(progress_id)})
         return UpdateProgressResponse(
             id=str(updated_record["_id"]),
-            industry_id=str(updated_record["industry_id"]),
+            niche_id=str(updated_record["niche_id"]),
             query_id=str(updated_record["query_id"]),
             done=updated_record["done"],
             start_param=updated_record["start_param"],
@@ -133,7 +133,7 @@ def progress_helper(progress) -> dict:
     """Convert MongoDB document to progress response."""
     return {
         "id": str(progress["_id"]),
-        "industry_id": str(progress["industry_id"]),
+        "niche_id": str(progress["niche_id"]),
         "query_id": str(progress["query_id"]),
         "done": progress["done"],
         "start_param": progress["start_param"],

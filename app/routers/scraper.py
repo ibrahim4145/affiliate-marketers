@@ -85,12 +85,12 @@ async def create_next_progress_record():
 class ScraperRunResponse(BaseModel):
     niche_name: str
     query: str
-    start_param: int
+    page_num: int
     scraper_progress_id: str
 
 class UpdateProgressRequest(BaseModel):
     done: bool
-    start_param: int
+    page_num: int
     search_engine_id: Optional[str] = None
 
 class UpdateProgressResponse(BaseModel):
@@ -98,7 +98,7 @@ class UpdateProgressResponse(BaseModel):
     niche_id: str
     query_id: str
     done: bool
-    start_param: int
+    page_num: int
     search_engine_id: Optional[str] = None
     updated_at: datetime
 
@@ -133,22 +133,24 @@ async def run_scraper(
         if not niche or not query:
             raise HTTPException(status_code=404, detail="Associated niche or query not found")
         
-        # Check if this is a sub-query and modify the query accordingly
+        # Build the query string with placeholder replacement
         if progress_record.get("sub_query_id"):
             from app.models.sub_query import sub_query_model
             sub_query = await sub_query_model.find_by_id(str(progress_record["sub_query_id"]))
             if sub_query:
-                # Replace {{query}} with the parent query
-                modified_query = sub_query["sub_query"].replace("{{query}}", query["query"])
+                # Replace {{niche}} in the parent query, then inject into sub-query via {{query}}
+                parent_query_text = query["query"].replace("{{niche}}", niche["niche_name"])  # main query resolved with niche
+                modified_query = sub_query["sub_query"].replace("{{query}}", parent_query_text)
             else:
-                modified_query = query["query"]
+                modified_query = query["query"].replace("{{niche}}", niche["niche_name"]) 
         else:
-            modified_query = query["query"]
+            # Main query: replace {{niche}} with the niche name if present
+            modified_query = query["query"].replace("{{niche}}", niche["niche_name"]) 
         
         return ScraperRunResponse(
             niche_name=niche["niche_name"],
             query=modified_query,
-            start_param=progress_record["start_param"],
+            page_num=progress_record["start_param"],
             scraper_progress_id=str(progress_record["_id"])
         )
     except HTTPException:
@@ -175,7 +177,7 @@ async def update_progress(
         # Prepare update data
         update_fields = {
             "done": update_data.done,
-            "start_param": update_data.start_param,
+            "start_param": update_data.page_num,
             "updated_at": datetime.utcnow()
         }
         
@@ -195,7 +197,7 @@ async def update_progress(
             niche_id=str(updated_record["niche_id"]),
             query_id=str(updated_record["query_id"]),
             done=updated_record["done"],
-            start_param=updated_record["start_param"],
+            page_num=updated_record["start_param"],
             search_engine_id=updated_record.get("search_engine_id"),
             updated_at=updated_record["updated_at"]
         )
@@ -226,7 +228,7 @@ def progress_helper(progress) -> dict:
         "niche_id": str(progress["niche_id"]),
         "query_id": str(progress["query_id"]),
         "done": progress["done"],
-        "start_param": progress["start_param"],
+        "page_num": progress["start_param"],
         "search_engine_id": progress.get("search_engine_id"),
         "created_at": progress.get("created_at"),
         "updated_at": progress.get("updated_at")

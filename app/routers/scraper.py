@@ -41,7 +41,7 @@ async def create_next_progress_record():
                     "query_id": query["_id"],
                     "sub_query_id": None,
                     "done": False,
-                    "start_param": 0,
+                    "page_num": 1,
                     "search_engine_id": None
                 }
                 return await scraper_progress_model.create(progress_data)
@@ -66,7 +66,7 @@ async def create_next_progress_record():
                             "query_id": query["_id"],
                             "sub_query_id": sub_query["_id"],
                             "done": False,
-                            "start_param": 0,
+                            "page_num": 1,
                             "search_engine_id": None
                         }
                         return await scraper_progress_model.create(progress_data)
@@ -147,10 +147,22 @@ async def run_scraper(
             # Main query: replace {{niche}} with the niche name if present
             modified_query = query["query"].replace("{{niche}}", niche["niche_name"]) 
         
+        # Ensure backward compatibility for existing records with start_param
+        effective_page_num = progress_record.get("page_num") if progress_record.get("page_num") is not None else progress_record.get("start_param", 1)
+        if "start_param" in progress_record and "page_num" not in progress_record:
+            # Persist migration for this record: set page_num and unset start_param
+            try:
+                await progress_collection.update_one(
+                    {"_id": progress_record["_id"]},
+                    {"$set": {"page_num": effective_page_num}, "$unset": {"start_param": ""}}
+                )
+            except Exception:
+                pass
+
         return ScraperRunResponse(
             niche_name=niche["niche_name"],
             query=modified_query,
-            page_num=progress_record["start_param"],
+            page_num=effective_page_num,
             scraper_progress_id=str(progress_record["_id"])
         )
     except HTTPException:
@@ -174,10 +186,10 @@ async def update_progress(
         if not progress_record:
             raise HTTPException(status_code=404, detail="Progress record not found")
         
-        # Prepare update data
+        # Prepare update data (store page_num; remove legacy start_param if present)
         update_fields = {
             "done": update_data.done,
-            "start_param": update_data.page_num,
+            "page_num": update_data.page_num,
             "updated_at": datetime.utcnow()
         }
         
@@ -187,7 +199,7 @@ async def update_progress(
         # Update the progress record
         await progress_collection.update_one(
             {"_id": ObjectId(progress_id)},
-            {"$set": update_fields}
+            {"$set": update_fields, "$unset": {"start_param": ""}}
         )
         
         # Return updated record
@@ -197,7 +209,7 @@ async def update_progress(
             niche_id=str(updated_record["niche_id"]),
             query_id=str(updated_record["query_id"]),
             done=updated_record["done"],
-            page_num=updated_record["start_param"],
+            page_num=updated_record.get("page_num", updated_record.get("start_param", 1)),
             search_engine_id=updated_record.get("search_engine_id"),
             updated_at=updated_record["updated_at"]
         )
@@ -228,7 +240,7 @@ def progress_helper(progress) -> dict:
         "niche_id": str(progress["niche_id"]),
         "query_id": str(progress["query_id"]),
         "done": progress["done"],
-        "page_num": progress["start_param"],
+        "page_num": progress.get("page_num", progress.get("start_param", 1)),
         "search_engine_id": progress.get("search_engine_id"),
         "created_at": progress.get("created_at"),
         "updated_at": progress.get("updated_at")

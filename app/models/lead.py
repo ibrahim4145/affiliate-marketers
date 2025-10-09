@@ -25,6 +25,7 @@ class LeadModel:
         await self.collection.create_index("scraped")
         await self.collection.create_index("google_done")
         await self.collection.create_index("scraper_progress_id")
+        await self.collection.create_index("visible")
     
     async def find_by_id(self, lead_id: str):
         """Find lead by ID."""
@@ -97,13 +98,19 @@ class LeadModel:
         """Delete lead."""
         return await self.collection.delete_one({"_id": ObjectId(lead_id)})
     
-    async def get_stats(self):
+    async def get_stats(self, visible_only: Optional[bool] = None):
         """Get lead statistics."""
-        total_leads = await self.collection.count_documents({})
-        scraped_count = await self.collection.count_documents({"scraped": True})
-        google_done_count = await self.collection.count_documents({"google_done": True})
+        # Build filter query based on visibility
+        filter_query = {}
+        if visible_only is not None:
+            filter_query["visible"] = visible_only
+        
+        total_leads = await self.collection.count_documents(filter_query)
+        scraped_count = await self.collection.count_documents({**filter_query, "scraped": True})
+        google_done_count = await self.collection.count_documents({**filter_query, "google_done": True})
         # New leads are those that are not scraped (scraped: False or scraped: null)
         new_count = await self.collection.count_documents({
+            **filter_query,
             "$or": [
                 {"scraped": False},
                 {"scraped": {"$exists": False}},

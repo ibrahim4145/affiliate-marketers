@@ -38,6 +38,8 @@ async def get_leads_endpoint(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to retrieve leads: {str(e)}")
 
+
+
 @router.get("/combined-data")
 async def get_leads_combined(
     skip: int = 0,
@@ -46,9 +48,12 @@ async def get_leads_combined(
     scraped: Optional[bool] = None,
     google_done: Optional[bool] = None,
     search: Optional[str] = None,
+    visible_only: Optional[bool] = None,
     db=Depends(get_database)
 ):
-    """Get leads with all related data (niche, emails, phones, socials) in a single response."""
+    """Get leads with all related data (niche, emails, phones, socials) in a single response.
+    Use visible_only=true to get only visible leads, visible_only=false to get only hidden leads,
+    or omit to get all leads regardless of visibility."""
     try:
         from app.models.lead import lead_model
         from app.models.niche import niche_model
@@ -71,17 +76,17 @@ async def get_leads_combined(
         if google_done is not None:
             filter_query["google_done"] = google_done
         
-        # Add search functionality
-        if search:
-            # Build search query for leads - only search in domain and title
-            filter_query["$or"] = [
-                {"domain": {"$regex": search, "$options": "i"}},
-                {"title": {"$regex": search, "$options": "i"}}
-            ]
+        # Add visibility filter
+        if visible_only is not None:
+            filter_query["visible"] = visible_only
         
-        # Get leads with pagination
-        cursor = leads_collection.find(filter_query).skip(skip).limit(limit)
-        leads = await cursor.to_list(length=limit)
+        # Note: Search functionality is handled in post-processing to allow niche searching
+        
+        # Get leads with pagination, sorted by created_at ascending
+        # If searching, get more leads initially to account for post-processing filtering
+        fetch_limit = limit * 3 if search else limit
+        cursor = leads_collection.find(filter_query).sort("created_at", 1).skip(skip).limit(fetch_limit)
+        leads = await cursor.to_list(length=fetch_limit)
         
         # Post-process search results to ensure accuracy
         if search:
@@ -98,12 +103,18 @@ async def get_leads_combined(
                 
                 # Check if search term appears in lead fields
                 domain = lead.get("domain", "").lower()
-                title = lead.get("title", "").lower()
                 
-                if (search_lower in domain or search_lower in title):
-                    lead_matches = True
+                if visible_only is True:
+                    # For visible leads (leads page), only check domain (no title column)
+                    if search_lower in domain:
+                        lead_matches = True
+                else:
+                    # For all leads (middleman page), check domain and title
+                    title = lead.get("title", "").lower()
+                    if (search_lower in domain or search_lower in title):
+                        lead_matches = True
                 
-                # If not found in lead fields, check niche
+                # Always check niche regardless of lead field matches
                 if not lead_matches:
                     scraper_progress_id = lead.get("scraper_progress_id")
                     if scraper_progress_id:
@@ -124,7 +135,7 @@ async def get_leads_combined(
                 if lead_matches:
                     filtered_leads.append(lead)
             
-            leads = filtered_leads
+            leads = filtered_leads[:limit]  # Limit to requested number of results
         
         # Get all niches for mapping
         niches_cursor = niches_collection.find({})
@@ -138,25 +149,25 @@ async def get_leads_combined(
         async def get_emails_for_leads():
             if not lead_ids:
                 return []
-            # Convert lead_ids to strings since contact collections store lead_id as string
-            lead_id_strings = [str(lead_id) for lead_id in lead_ids]
-            emails_cursor = emails_collection.find({"lead_id": {"$in": lead_id_strings}})
+            # Convert lead_ids to ObjectId since contact collections store lead_id as ObjectId
+            lead_id_objects = [ObjectId(lead_id) for lead_id in lead_ids]
+            emails_cursor = emails_collection.find({"lead_id": {"$in": lead_id_objects}})
             return await emails_cursor.to_list(length=None)
         
         async def get_phones_for_leads():
             if not lead_ids:
                 return []
-            # Convert lead_ids to strings since contact collections store lead_id as string
-            lead_id_strings = [str(lead_id) for lead_id in lead_ids]
-            phones_cursor = phones_collection.find({"lead_id": {"$in": lead_id_strings}})
+            # Convert lead_ids to ObjectId since contact collections store lead_id as ObjectId
+            lead_id_objects = [ObjectId(lead_id) for lead_id in lead_ids]
+            phones_cursor = phones_collection.find({"lead_id": {"$in": lead_id_objects}})
             return await phones_cursor.to_list(length=None)
         
         async def get_socials_for_leads():
             if not lead_ids:
                 return []
-            # Convert lead_ids to strings since contact collections store lead_id as string
-            lead_id_strings = [str(lead_id) for lead_id in lead_ids]
-            socials_cursor = socials_collection.find({"lead_id": {"$in": lead_id_strings}})
+            # Convert lead_ids to ObjectId since contact collections store lead_id as ObjectId
+            lead_id_objects = [ObjectId(lead_id) for lead_id in lead_ids]
+            socials_cursor = socials_collection.find({"lead_id": {"$in": lead_id_objects}})
             return await socials_cursor.to_list(length=None)
         
         # Execute parallel queries
@@ -169,7 +180,7 @@ async def get_leads_combined(
         # Group related data by lead_id
         emails_by_lead = {}
         for email in emails:
-            lead_id = str(email["lead_id"])
+            lead_id = str(email["lead_id"])  # Convert ObjectId to string for grouping
             if lead_id not in emails_by_lead:
                 emails_by_lead[lead_id] = []
             emails_by_lead[lead_id].append({
@@ -182,7 +193,7 @@ async def get_leads_combined(
         
         phones_by_lead = {}
         for phone in phones:
-            lead_id = str(phone["lead_id"])
+            lead_id = str(phone["lead_id"])  # Convert ObjectId to string for grouping
             if lead_id not in phones_by_lead:
                 phones_by_lead[lead_id] = []
             phones_by_lead[lead_id].append({
@@ -195,7 +206,7 @@ async def get_leads_combined(
         
         socials_by_lead = {}
         for social in socials:
-            lead_id = str(social["lead_id"])
+            lead_id = str(social["lead_id"])  # Convert ObjectId to string for grouping
             if lead_id not in socials_by_lead:
                 socials_by_lead[lead_id] = []
             socials_by_lead[lead_id].append({
@@ -256,6 +267,7 @@ async def get_leads_combined(
                 "scraper_progress_id": lead.get("scraper_progress_id"),
                 "scraped": lead.get("scraped", False),
                 "google_done": lead.get("google_done", False),
+                "visible": lead.get("visible", False),
                 "created_at": lead.get("created_at"),
                 "updated_at": lead.get("updated_at"),
                 "niche": niche_info,
@@ -324,10 +336,10 @@ async def delete_lead_endpoint(
     return {"message": "Lead deleted successfully"}
 
 @router.get("/stats/summary")
-async def get_leads_stats_endpoint(db=Depends(get_database)):
+async def get_leads_stats_endpoint(visible_only: Optional[bool] = None, db=Depends(get_database)):
     """Get leads statistics."""
     try:
-        return await get_leads_stats()
+        return await get_leads_stats(visible_only=visible_only)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to retrieve leads stats: {str(e)}")
 
@@ -342,12 +354,15 @@ async def add_lead_contacts_endpoint(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to add contacts: {str(e)}")
 
-@router.post("/ensure-indexes")
-async def ensure_indexes(db=Depends(get_database)):
-    """Ensure MongoDB indexes are created for optimal performance."""
-    try:
-        from app.models.indexes import create_indexes
-        result = await create_indexes()
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to create indexes: {str(e)}")
+# @router.post("/ensure-indexes")
+# async def ensure_indexes(db=Depends(get_database)):
+#     """Ensure MongoDB indexes are created for optimal performance."""
+#     try:
+#         from app.models.indexes import create_indexes
+#         result = await create_indexes()
+#         return result
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=f"Failed to create indexes: {str(e)}")
+
+
+

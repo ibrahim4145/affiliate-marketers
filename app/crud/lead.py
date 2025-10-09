@@ -126,22 +126,35 @@ async def update_lead(lead_id: str, lead_update: LeadUpdate) -> Optional[LeadRes
         return None
 
 async def delete_lead(lead_id: str) -> bool:
-    """Delete a lead."""
+    """Delete a lead and all its associated contacts."""
     try:
         # Check if lead exists
         lead = await lead_model.find_by_id(lead_id)
         if not lead:
             return False
         
-        # Delete the lead
+        # Delete all associated contacts first
+        # Delete emails
+        emails_collection = email_model.collection
+        await emails_collection.delete_many({"lead_id": lead_id})
+        
+        # Delete phones
+        phones_collection = phone_model.collection
+        await phones_collection.delete_many({"lead_id": lead_id})
+        
+        # Delete socials
+        socials_collection = social_model.collection
+        await socials_collection.delete_many({"lead_id": lead_id})
+        
+        # Finally delete the lead
         result = await lead_model.delete(lead_id)
         return True
     except Exception:
         return False
 
-async def get_leads_stats() -> Dict[str, Any]:
+async def get_leads_stats(visible_only: Optional[bool] = None) -> Dict[str, Any]:
     """Get leads statistics."""
-    return await lead_model.get_stats()
+    return await lead_model.get_stats(visible_only=visible_only)
 
 async def add_lead_contacts(lead_id: str, contacts_data: LeadContactsData) -> LeadContactsResponse:
     """Add contacts to a lead."""

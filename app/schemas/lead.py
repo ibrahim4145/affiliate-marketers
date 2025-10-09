@@ -10,6 +10,7 @@ class LeadBase(BaseModel):
     scraper_progress_id: str = Field(..., description="Scraper progress ID")
     scraped: bool = Field(default=False, description="Whether email has been scraped")
     google_done: bool = Field(default=False, description="Whether Google search is done")
+    visible: bool = Field(default=False, description="Whether lead is visible on main leads page")
 
 class LeadCreate(LeadBase):
     pass
@@ -21,6 +22,7 @@ class LeadUpdate(BaseModel):
     scraper_progress_id: Optional[str] = None
     scraped: Optional[bool] = None
     google_done: Optional[bool] = None
+    visible: Optional[bool] = None
 
 class LeadResponse(LeadBase):
     id: str = Field(..., alias="_id")

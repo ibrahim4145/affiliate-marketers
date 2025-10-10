@@ -343,6 +343,15 @@ async def get_leads_stats_endpoint(visible_only: Optional[bool] = None, db=Depen
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to retrieve leads stats: {str(e)}")
 
+@router.get("/stats/emails")
+async def get_email_stats_endpoint(visible_only: Optional[bool] = None, db=Depends(get_database)):
+    """Get email statistics for leads."""
+    try:
+        from app.models.lead import lead_model
+        return await lead_model.get_email_stats(visible_only=visible_only)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve email stats: {str(e)}")
+
 @router.post("/{lead_id}/contacts", response_model=LeadContactsResponse)
 async def add_lead_contacts_endpoint(
     lead_id: str,

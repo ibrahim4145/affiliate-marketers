@@ -124,6 +124,52 @@ class LeadModel:
             "google_done_leads": google_done_count,
             "unscraped_leads": new_count
         }
+    
+    async def get_email_stats(self, visible_only: Optional[bool] = None):
+        """Get email statistics for leads."""
+        from app.models.email import email_model
+        
+        # Build filter query for leads
+        filter_query = {}
+        if visible_only is not None:
+            filter_query["visible"] = visible_only
+        
+        # Get lead IDs that match the filter
+        leads_cursor = self.collection.find(filter_query, {"_id": 1})
+        lead_ids = [lead["_id"] for lead in await leads_cursor.to_list(length=None)]
+        
+        if not lead_ids:
+            return {
+                "total_emails": 0,
+                "leads_with_emails": 0,
+                "total_leads": 0
+            }
+        
+        # Count total emails for these leads
+        total_emails = await email_model.collection.count_documents({
+            "lead_id": {"$in": lead_ids}
+        })
+        
+        # Count leads that have at least one email
+        leads_with_emails = await self.collection.count_documents({
+            **filter_query,
+            "_id": {"$in": lead_ids}
+        })
+        
+        # Get distinct lead IDs that have emails
+        pipeline = [
+            {"$match": {"lead_id": {"$in": lead_ids}}},
+            {"$group": {"_id": "$lead_id"}},
+            {"$count": "leads_with_emails"}
+        ]
+        result = await email_model.collection.aggregate(pipeline).to_list(length=1)
+        leads_with_emails = result[0]["leads_with_emails"] if result else 0
+        
+        return {
+            "total_emails": total_emails,
+            "leads_with_emails": leads_with_emails,
+            "total_leads": len(lead_ids)
+        }
 
 # Global lead model instance
 lead_model = LeadModel()
